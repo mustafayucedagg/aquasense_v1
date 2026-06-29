@@ -1,0 +1,166 @@
+import time, gc, zipfile, subprocess
+
+import numpy as np
+
+import pandas as pd
+
+import xgboost as xgb
+
+import joblib
+ 
+ZIP_PATH = "/content/drive/MyDrive/LeakDB/LeakDB/Hanoi_CMH_1000scenarios.zip"
+
+pressure_cols_global = [f'P_Node_{i}' for i in range(2, 33)]
+
+DROP_COLS = ['Index', 'Timestamp', 'Label', 'scenario']
+ 
+def load_scenario(zip_ref, scenario_num):
+
+    base = f"Hanoi_CMH/Scenario-{scenario_num}/"
+
+    with zip_ref.open(base + "Timestamps.csv") as f:
+
+        ts = pd.read_csv(f)
+
+    with zip_ref.open(base + "Labels.csv") as f:
+
+        lb = pd.read_csv(f)
+
+    df = ts.merge(lb, on='Index')
+
+    df['hour'] = pd.to_datetime(df['Timestamp']).dt.hour
+
+    df['is_night'] = df['hour'].between(2, 4).astype(int)
+
+    for i in range(2, 33):
+
+        with zip_ref.open(base + f"Pressures/Node_{i}.csv") as f:
+
+            tmp = pd.read_csv(f).rename(columns={'Value': f'P_Node_{i}'})
+
+        df = df.merge(tmp[['Index', f'P_Node_{i}']], on='Index')
+
+    for i in range(1, 35):
+
+        with zip_ref.open(base + f"Flows/Link_{i}.csv") as f:
+
+            tmp = pd.read_csv(f).rename(columns={'Value': f'F_Link_{i}'})
+
+        df = df.merge(tmp[['Index', f'F_Link_{i}']], on='Index')
+
+    for i in range(1, 33):
+
+        with zip_ref.open(base + f"Demands/Node_{i}.csv") as f:
+
+            tmp = pd.read_csv(f).rename(columns={'Value': f'D_Node_{i}'})
+
+        df = df.merge(tmp[['Index', f'D_Node_{i}']], on='Index')
+
+    df['scenario'] = scenario_num
+
+    return df
+ 
+def add_rolling(df):
+
+    for col in pressure_cols_global:
+
+        df[f'{col}_roll3'] = df[col].rolling(3, min_periods=1).mean()
+
+        df[f'{col}_diff1'] = df[col].diff(1).fillna(0)
+
+    return df
+ 
+def get_xy(df):
+
+    feature_cols = [c for c in df.columns if c not in DROP_COLS]
+
+    X = df[feature_cols].values.astype(np.float32)
+
+    y = df['Label'].values.astype(np.float32)
+
+    return X, y, feature_cols
+ 
+# Grup 1: Senaryo 1-100
+
+print("Grup 1/10 yükleniyor...")
+
+t0 = time.time()
+
+group_dfs = []
+ 
+with zipfile.ZipFile(ZIP_PATH, 'r') as z:
+
+    for s in range(1, 101):
+
+        df = load_scenario(z, s)
+
+        df = add_rolling(df)
+
+        group_dfs.append(df)
+
+        if s % 25 == 0:
+
+            print(f"  {s}/100 — {time.time()-t0:.0f}s")
+ 
+group_df = pd.concat(group_dfs, ignore_index=True)
+
+del group_dfs; gc.collect()
+ 
+X, y, feature_cols = get_xy(group_df)
+
+del group_df; gc.collect()
+ 
+neg, pos = (y==0).sum(), (y==1).sum()
+
+spw = neg / pos
+
+print(f"scale_pos_weight: {spw:.1f}, shape: {X.shape}")
+ 
+model = xgb.XGBClassifier(
+
+    n_estimators=100, max_depth=6, learning_rate=0.1,
+
+    scale_pos_weight=spw, subsample=0.8, colsample_bytree=0.8,
+
+    eval_metric='logloss', random_state=42,
+
+    tree_method='hist', device='cuda'
+
+)
+ 
+model.fit(X, y)
+
+joblib.dump(model, '/content/drive/MyDrive/LeakDB/aquasense_model_v2_g1.pkl')
+
+print(f"Grup 1 tamamlandı — {time.time()-t0:.0f}s")
+ 
+for group_num in range(2, 11):
+    start_s = (group_num - 1) * 100 + 1
+    end_s = group_num * 100
+ 
+    print(f"\nGrup {group_num}/10 yükleniyor ({start_s}-{end_s})...")
+    t0 = time.time()
+    group_dfs = []
+ 
+    with zipfile.ZipFile(ZIP_PATH, 'r') as z:
+        for s in range(start_s, end_s + 1):
+            df = load_scenario(z, s)
+            df = add_rolling(df)
+            group_dfs.append(df)
+            if s % 25 == 0:
+                print(f"  {s-start_s+1}/100 — {time.time()-t0:.0f}s")
+ 
+    group_df = pd.concat(group_dfs, ignore_index=True)
+    del group_dfs; gc.collect()
+ 
+    X, y, _ = get_xy(group_df)
+    del group_df; gc.collect()
+ 
+    # Incremental: önceki modeli baz al
+    model.fit(X, y, xgb_model=model.get_booster())
+ 
+    joblib.dump(model, f'/content/drive/MyDrive/LeakDB/aquasense_model_v2_g{group_num}.pkl')
+    print(f"Grup {group_num} tamamlandı — toplam {time.time()-t0:.0f}s")
+ 
+print("\nTüm gruplar tamamlandı!")
+ 
