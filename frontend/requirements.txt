@@ -1,10 +1,6 @@
-fastapi
-uvicorn
-xgboost
-joblib
-pydantic
-pandas
 streamlit
 pandas
 numpy
 requests
+folium
+streamlit-folium
