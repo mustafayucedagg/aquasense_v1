@@ -6,7 +6,7 @@ import random
 import os
 from datetime import datetime, timedelta
 
-# streamlit-folium opsiyonel: kurulu degilse uyari goster, demo modda calis
+# streamlit-folium opsiyonel
 try:
     import folium
     from streamlit_folium import st_folium
@@ -27,28 +27,83 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TASARIM TOKEN'LARI — Açık Tema, Logo Tabanlı
+# TASARIM TOKEN'LARI
 # ─────────────────────────────────────────────────────────────────────────────
-COLORS = {
-    "navy": "#0B1C36",          # Logo lacivert - ana marka rengi
-    "navy_light": "#16315C",    # Lacivert ton (hover, ikincil)
-    "bg": "#FAFBFC",            # Ana zemin
-    "panel": "#FFFFFF",         # Kart/panel zemini
-    "panel_alt": "#F1F4F8",     # Alternatif panel zemini
-    "border": "#E2E8F0",        # Çizgi rengi
-    "border_strong": "#CBD5E1", # Daha güçlü çizgi
-    "text": "#0F1A2E",          # Ana metin
-    "text_muted": "#64748B",    # İkincil metin
-    "text_faint": "#94A3B8",    # Soluk metin/etiket
-    "ok": "#0F766E",            # Normal durum (teal)
+COLORS_LIGHT = {
+    "navy": "#0B1C36",
+    "navy_light": "#16315C",
+    "bg": "#FAFBFC",
+    "panel": "#FFFFFF",
+    "panel_alt": "#F1F4F8",
+    "border": "#E2E8F0",
+    "border_strong": "#CBD5E1",
+    "text": "#0F1A2E",
+    "text_muted": "#64748B",
+    "text_faint": "#94A3B8",
+    "ok": "#0F766E",
     "ok_bg": "#ECFDF8",
-    "warning": "#B45309",       # Uyarı (amber, koyu - okunabilirlik için)
+    "warning": "#B45309",
     "warning_bg": "#FFFBEB",
-    "alarm": "#DC2626",         # Alarm (kırmızı)
+    "alarm": "#DC2626",
     "alarm_bg": "#FEF2F2",
+    "sidebar_bg": "#0B1C36",
+    "sidebar_text": "#E8EDF5",
+    "sidebar_muted": "#8FA3C2",
+    "sidebar_dim": "#B9C6DC",
+    "input_bg": "#FFFFFF",
+}
+
+COLORS_DARK = {
+    "navy": "#4A90D9",
+    "navy_light": "#60A8F0",
+    "bg": "#0D1117",
+    "panel": "#161B22",
+    "panel_alt": "#1C2333",
+    "border": "#30363D",
+    "border_strong": "#484F58",
+    "text": "#E6EDF3",
+    "text_muted": "#8B949E",
+    "text_faint": "#6E7681",
+    "ok": "#3FB950",
+    "ok_bg": "#0F2B17",
+    "warning": "#D29922",
+    "warning_bg": "#2B1D09",
+    "alarm": "#F85149",
+    "alarm_bg": "#2B0E0E",
+    "sidebar_bg": "#010409",
+    "sidebar_text": "#E6EDF3",
+    "sidebar_muted": "#6E7681",
+    "sidebar_dim": "#8B949E",
+    "input_bg": "#0D1117",
 }
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────────────────────
+def init_state():
+    defaults = {
+        "belediye": "Merzifon Belediyesi",
+        "dark_mode": False,
+        "alarm_log": [],
+        "ekip_gonderildi": [],
+        "manuel_tahmin_log": [],
+        "secili_node": None,
+        "api_durumu_kontrol_edildi": False,
+        "api_aktif": False,
+        "telegram_son_mesaj": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+init_state()
+
+# Aktif renk paleti
+COLORS = COLORS_DARK if st.session_state.dark_mode else COLORS_LIGHT
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GLOBAL CSS
@@ -58,68 +113,77 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 html, body, [data-testid="stAppViewContainer"], .main {{
-    background-color: {COLORS['bg']};
+    background-color: {COLORS['bg']} !important;
     color: {COLORS['text']};
     font-family: 'Inter', sans-serif;
 }}
 
 /* Sidebar */
 [data-testid="stSidebar"] {{
-    background-color: {COLORS['navy']};
+    background-color: {COLORS['sidebar_bg']} !important;
     border-right: 1px solid {COLORS['border']};
 }}
-[data-testid="stSidebar"] * {{ color: #E8EDF5 !important; }}
+[data-testid="stSidebar"] * {{ color: {COLORS['sidebar_text']} !important; }}
 [data-testid="stSidebar"] hr {{ border-color: rgba(255,255,255,0.12) !important; }}
-
-/* Sidebar nav butonlari */
-.nav-item {{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 11px 14px;
-    border-radius: 8px;
-    margin-bottom: 4px;
-    font-size: 13.5px;
-    font-weight: 500;
-    color: #B9C6DC;
-    cursor: pointer;
-    transition: background 0.15s ease;
-}}
-.nav-item.active {{
-    background: rgba(255,255,255,0.10);
-    color: #FFFFFF !important;
-    font-weight: 600;
-}}
-
-/* Streamlit radio -> sol menu gibi kullaniyoruz, native gorunumu gizle */
 [data-testid="stSidebar"] [role="radiogroup"] label {{
     background: transparent;
     border-radius: 8px;
     padding: 9px 12px;
     margin-bottom: 2px;
     transition: background 0.15s ease;
+    font-size: 14px !important;
 }}
 [data-testid="stSidebar"] [role="radiogroup"] label:hover {{
-    background: rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.08);
 }}
 
-/* Basliklar */
-h1, h2, h3, h4 {{ font-family: 'Inter', sans-serif; font-weight: 700; color: {COLORS['text']}; }}
+/* Ana içerik alanı */
+[data-testid="stMain"] {{
+    background-color: {COLORS['bg']} !important;
+}}
+section[data-testid="stMain"] > div {{
+    background-color: {COLORS['bg']} !important;
+}}
 
-/* Rehber metin kutusu */
-.guide-box {{
+/* Başlıklar */
+h1, h2, h3, h4 {{ font-family: 'Inter', sans-serif; font-weight: 700; color: {COLORS['text']} !important; }}
+
+/* Rehber metin kutusu - üst (kısa) */
+.guide-box-top {{
     background: {COLORS['panel_alt']};
-    border-left: 3px solid {COLORS['navy']};
+    border-left: 4px solid {COLORS['navy']};
     border-radius: 0 8px 8px 0;
-    padding: 13px 18px;
-    margin-bottom: 22px;
-    font-size: 13px;
-    color: {COLORS['text_muted']};
-    line-height: 1.65;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    font-size: 13.5px;
+    color: {COLORS['text']};
+    font-weight: 600;
+    line-height: 1.5;
 }}
-.guide-box b {{ color: {COLORS['text']}; }}
 
-/* Ipucu balonu */
+/* Rehber metin kutusu - alt (detaylı) */
+.guide-box-bottom {{
+    background: {COLORS['panel_alt']};
+    border: 1px solid {COLORS['border']};
+    border-top: 3px solid {COLORS['navy']};
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-top: 30px;
+    font-size: 12.5px;
+    color: {COLORS['text_muted']};
+    line-height: 1.75;
+}}
+.guide-box-bottom h4 {{
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    color: {COLORS['text']} !important;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    margin-bottom: 8px !important;
+}}
+.guide-box-bottom b {{ color: {COLORS['text']} !important; }}
+
+/* İpucu balonu */
 .hint {{
     display: inline-flex;
     align-items: center;
@@ -138,116 +202,189 @@ h1, h2, h3, h4 {{ font-family: 'Inter', sans-serif; font-weight: 700; color: {CO
     background: {COLORS['panel']};
     border: 1px solid {COLORS['border']};
     border-radius: 10px;
-    padding: 16px 20px;
+    padding: 18px 22px;
     margin-bottom: 12px;
-    box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }}
-.metric-card.alarm {{ border-color: {COLORS['alarm']}; background: {COLORS['alarm_bg']}; }}
-.metric-card.warning {{ border-color: {COLORS['warning']}; background: {COLORS['warning_bg']}; }}
+.metric-card.alarm {{ border-color: {COLORS['alarm']}; background: {COLORS['alarm_bg']}; border-width: 2px; }}
+.metric-card.warning {{ border-color: {COLORS['warning']}; background: {COLORS['warning_bg']}; border-width: 2px; }}
 .metric-card.ok {{ border-color: {COLORS['ok']}; background: {COLORS['ok_bg']}; }}
 .metric-label {{
     font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
     color: {COLORS['text_faint']}; margin-bottom: 6px;
 }}
 .metric-value {{
-    font-family: 'JetBrains Mono', monospace; font-size: 25px; font-weight: 600; color: {COLORS['text']};
+    font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 600; color: {COLORS['text']};
 }}
-.metric-sub {{ font-size: 11.5px; color: {COLORS['text_muted']}; margin-top: 3px; }}
+.metric-sub {{ font-size: 11.5px; color: {COLORS['text_muted']}; margin-top: 4px; }}
 
 /* Durum rozeti */
 .badge {{
-    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; padding: 3px 9px;
-    border-radius: 5px; font-weight: 600; letter-spacing: 0.03em;
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; padding: 4px 10px;
+    border-radius: 5px; font-weight: 700; letter-spacing: 0.03em;
 }}
 .badge-alarm {{ background: {COLORS['alarm']}; color: #fff; }}
 .badge-warning {{ background: {COLORS['warning']}; color: #fff; }}
 .badge-ok {{ background: {COLORS['ok']}; color: #fff; }}
 
-/* Olcum noktasi satiri */
+/* Ölçüm noktası satırı */
 .node-row {{
     display: flex; align-items: center; justify-content: space-between;
-    padding: 11px 14px; border-radius: 8px; margin-bottom: 6px;
+    padding: 12px 16px; border-radius: 8px; margin-bottom: 6px;
     background: {COLORS['panel']}; border: 1px solid {COLORS['border']}; font-size: 13px;
+    color: {COLORS['text']};
 }}
-.node-row.alarm {{ background: {COLORS['alarm_bg']}; border-color: #FCA5A5; }}
-.node-row.warning {{ background: {COLORS['warning_bg']}; border-color: #FCD34D; }}
+.node-row.alarm {{ background: {COLORS['alarm_bg']}; border-color: {COLORS['alarm']}; border-width: 2px; }}
+.node-row.warning {{ background: {COLORS['warning_bg']}; border-color: {COLORS['warning']}; }}
 
-/* Durum gostergesi (baglanti) */
+/* Durum göstergesi */
 .status-pill {{
-    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
-    padding: 6px 13px; border-radius: 20px; background: {COLORS['ok_bg']}; color: {COLORS['ok']};
-    border: 1px solid #99E6DA;
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
+    padding: 6px 14px; border-radius: 20px; background: {COLORS['ok_bg']}; color: {COLORS['ok']};
+    border: 1px solid {COLORS['ok']};
 }}
-.status-pill.offline {{ background: {COLORS['alarm_bg']}; color: {COLORS['alarm']}; border-color: #FCA5A5; }}
+.status-pill.offline {{ background: {COLORS['alarm_bg']}; color: {COLORS['alarm']}; border-color: {COLORS['alarm']}; }}
 .status-dot {{
     width: 7px; height: 7px; border-radius: 50%; background: currentColor;
     animation: pulse-dot 2s infinite;
 }}
 @keyframes pulse-dot {{ 0%,100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
 
-/* Sekme stili (ust sekmeler - alt-navigasyon icin) */
+/* Sekmeler */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{
-    background: transparent; border-bottom: 1px solid {COLORS['border']}; gap: 4px;
+    background: transparent; border-bottom: 2px solid {COLORS['border']}; gap: 4px;
 }}
 [data-testid="stTabs"] [data-baseweb="tab"] {{
-    background: transparent; color: {COLORS['text_muted']} !important; font-size: 13px;
-    font-weight: 500; padding: 9px 18px;
+    background: transparent; color: {COLORS['text_muted']} !important; font-size: 13.5px;
+    font-weight: 500; padding: 10px 20px;
 }}
 [data-testid="stTabs"] [aria-selected="true"] {{
-    color: {COLORS['navy']} !important; border-bottom: 2px solid {COLORS['navy']} !important; font-weight: 600;
+    color: {COLORS['navy']} !important; border-bottom: 2px solid {COLORS['navy']} !important;
+    font-weight: 700 !important;
 }}
 
 /* Tablo */
 .stDataFrame {{ border: 1px solid {COLORS['border']} !important; border-radius: 8px !important; }}
+[data-testid="stDataFrameResizable"] {{ background: {COLORS['panel']} !important; }}
 
-/* Ayirici */
-.divider {{ border: none; border-top: 1px solid {COLORS['border']}; margin: 22px 0; }}
+/* Ayırıcı */
+.divider {{ border: none; border-top: 1px solid {COLORS['border']}; margin: 24px 0; }}
 
 /* Inputlar */
-.stNumberInput input, .stSelectbox > div, .stTextInput input {{
-    background: {COLORS['panel']} !important; color: {COLORS['text']} !important;
+.stNumberInput input, .stSelectbox > div, .stTextInput input, .stSlider {{
+    background: {COLORS['input_bg']} !important; color: {COLORS['text']} !important;
     border: 1px solid {COLORS['border_strong']} !important; border-radius: 8px !important;
 }}
 
-/* Butonlar */
+/* BUTONLAR — büyük ve canlı */
 .stButton button {{
-    background: {COLORS['navy']} !important; color: #FFFFFF !important; font-weight: 600 !important;
-    border: none !important; border-radius: 8px !important; padding: 10px 22px !important;
-    font-size: 13.5px !important; transition: background 0.15s ease;
+    background: {COLORS['navy']} !important;
+    color: #FFFFFF !important;
+    font-weight: 700 !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 14px 28px !important;
+    font-size: 15px !important;
+    transition: all 0.15s ease !important;
+    letter-spacing: 0.01em !important;
+    min-height: 48px !important;
 }}
-.stButton button:hover {{ background: {COLORS['navy_light']} !important; }}
+.stButton button:hover {{
+    background: {COLORS['navy_light']} !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+}}
 .stButton button:disabled {{
-    background: {COLORS['border']} !important; color: {COLORS['text_faint']} !important;
+    background: {COLORS['border']} !important;
+    color: {COLORS['text_faint']} !important;
+    transform: none !important;
+    box-shadow: none !important;
 }}
 
-/* Birincil eylem butonu (Ekibi Gonder gibi) */
+/* Ekibi Gönder butonu — kırmızı, büyük */
 .action-btn-active button {{
     background: {COLORS['alarm']} !important;
+    font-size: 16px !important;
+    padding: 16px 32px !important;
+    min-height: 56px !important;
+    box-shadow: 0 4px 16px rgba(220,38,38,0.4) !important;
+    animation: pulse-btn 2s infinite;
 }}
-.action-btn-active button:hover {{ background: #B91C1C !important; }}
+.action-btn-active button:hover {{
+    background: #B91C1C !important;
+    box-shadow: 0 6px 20px rgba(220,38,38,0.5) !important;
+}}
+@keyframes pulse-btn {{
+    0%, 100% {{ box-shadow: 0 4px 16px rgba(220,38,38,0.4); }}
+    50% {{ box-shadow: 0 4px 24px rgba(220,38,38,0.7); }}
+}}
 
-/* Logo basligi */
+/* Telegram onay kutusu */
+.telegram-banner {{
+    background: {COLORS['ok_bg']};
+    border: 2px solid {COLORS['ok']};
+    border-radius: 10px;
+    padding: 18px 20px;
+    color: {COLORS['ok']};
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    line-height: 1.6;
+}}
+.telegram-banner .tg-title {{
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+.telegram-banner .tg-detail {{
+    font-size: 12.5px;
+    font-weight: 400;
+    color: {COLORS['text_muted']};
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    background: {COLORS['panel']};
+    border-radius: 6px;
+    padding: 10px 14px;
+    line-height: 1.8;
+}}
+.telegram-banner.error {{
+    background: {COLORS['warning_bg']};
+    border-color: {COLORS['warning']};
+    color: {COLORS['warning']};
+}}
+
+/* Logo başlığı */
 .brand-header {{
     display: flex; align-items: center; gap: 10px; padding: 4px 4px 18px 4px;
 }}
-.brand-title {{ font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }}
-.brand-sub {{ font-size: 10.5px; color: #8FA3C2; margin-top: -2px; }}
+.brand-title {{ font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }}
+.brand-sub {{ font-size: 10.5px; color: {COLORS['sidebar_muted']}; margin-top: -2px; }}
 
 /* Scrollbar */
 ::-webkit-scrollbar {{ width: 6px; }}
 ::-webkit-scrollbar-track {{ background: {COLORS['bg']}; }}
 ::-webkit-scrollbar-thumb {{ background: {COLORS['border_strong']}; border-radius: 3px; }}
 
-/* Onay/basari mesaji */
-.success-banner {{
-    background: {COLORS['ok_bg']}; border: 1px solid #99E6DA; border-radius: 8px;
-    padding: 13px 16px; color: {COLORS['ok']}; font-size: 13px; font-weight: 600;
-    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+/* MVP uyarı kutusu */
+.mvp-banner {{
+    background: {COLORS['warning_bg']};
+    border: 2px solid {COLORS['warning']};
+    border-radius: 10px;
+    padding: 16px 20px;
+    color: {COLORS['warning']};
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    line-height: 1.6;
 }}
 </style>
 """, unsafe_allow_html=True)
+
 # ─────────────────────────────────────────────────────────────────────────────
-# EPANET TOPOLOJISI (Hanoi_CMH.inp'den cikarilan gercek sebeke yapisi)
+# EPANET TOPOLOJİSİ
 # ─────────────────────────────────────────────────────────────────────────────
 LOCAL_COORDS = {
     1: (5251.17, 4485.98), 2: (5251.17, 5268.69), 3: (5227.80, 5969.63),
@@ -271,41 +408,12 @@ PIPES = [
     (27,27,26),(28,16,27),(29,23,28),(30,28,29),(31,29,30),(32,30,31),
     (33,32,31),(34,25,32),
 ]
-PRESSURE_NODE_IDS = list(range(2, 33))  # Node_1 rezervuar, feature degil
+PRESSURE_NODE_IDS = list(range(2, 33))
 FLOW_LINK_IDS = list(range(1, 35))
 DEMAND_NODE_IDS = list(range(1, 33))
 
-
-@st.cache_data
-def local_to_latlon(center_lat, center_lon, span_km=1.8):
-    """
-    EPANET'in yerel X/Y koordinatlarini, sehir merkezi etrafinda gercekci
-    bir cografi alana olcekleyip lat/lon'a cevirir. Sebekenin gercek
-    topolojik sekli (node'larin birbirine gore konumu) korunur.
-    """
-    xs = [c[0] for c in LOCAL_COORDS.values()]
-    ys = [c[1] for c in LOCAL_COORDS.values()]
-    x_min, x_max = min(xs), max(xs)
-    y_min, y_max = min(ys), max(ys)
-    max_range = max(x_max - x_min, y_max - y_min)
-
-    km_per_deg_lat = 111.0
-    km_per_deg_lon = 111.0 * math.cos(math.radians(center_lat))
-    lat_span_deg = span_km / km_per_deg_lat
-    lon_span_deg = span_km / km_per_deg_lon
-
-    latlon = {}
-    for node_id, (x, y) in LOCAL_COORDS.items():
-        nx = (x - x_min) / max_range - 0.5
-        ny = (y - y_min) / max_range - 0.5
-        lat = center_lat + ny * lat_span_deg
-        lon = center_lon + nx * lon_span_deg
-        latlon[node_id] = (round(lat, 6), round(lon, 6))
-    return latlon
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# BELEDIYE VERISI
+# BELEDİYE VERİSİ
 # ─────────────────────────────────────────────────────────────────────────────
 BELEDIYELER = {
     "Merzifon Belediyesi": {
@@ -341,8 +449,28 @@ BELEDIYELER = {
 }
 
 
+@st.cache_data
+def local_to_latlon(center_lat, center_lon, span_km=1.8):
+    xs = [c[0] for c in LOCAL_COORDS.values()]
+    ys = [c[1] for c in LOCAL_COORDS.values()]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    max_range = max(x_max - x_min, y_max - y_min)
+    km_per_deg_lat = 111.0
+    km_per_deg_lon = 111.0 * math.cos(math.radians(center_lat))
+    lat_span_deg = span_km / km_per_deg_lat
+    lon_span_deg = span_km / km_per_deg_lon
+    latlon = {}
+    for node_id, (x, y) in LOCAL_COORDS.items():
+        nx = (x - x_min) / max_range - 0.5
+        ny = (y - y_min) / max_range - 0.5
+        lat = center_lat + ny * lat_span_deg
+        lon = center_lon + nx * lon_span_deg
+        latlon[node_id] = (round(lat, 6), round(lon, 6))
+    return latlon
+
+
 def get_node_assignments(bel_key, n_zones):
-    """Node'lari izole bolgelere (DMA) deterministik olarak dagitir."""
     node_ids = PRESSURE_NODE_IDS
     chunk = len(node_ids) // n_zones
     assignments = {}
@@ -350,27 +478,9 @@ def get_node_assignments(bel_key, n_zones):
         zone_idx = min(i // max(chunk, 1), n_zones - 1)
         assignments[nid] = zone_idx
     return assignments
-# ─────────────────────────────────────────────────────────────────────────────
-# SESSION STATE
-# ─────────────────────────────────────────────────────────────────────────────
-def init_state():
-    defaults = {
-        "belediye": "Merzifon Belediyesi",
-        "alarm_log": [],
-        "ekip_gonderildi": [],
-        "manuel_tahmin_log": [],
-        "secili_node": None,
-        "api_durumu_kontrol_edildi": False,
-        "api_aktif": False,
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
 
 
 def get_node_states(bel_key, alarm_node_ids=None, seed_offset=0):
-    """Demo amacli node durumlarini uretir (gercek API baglandiginda
-    bu fonksiyonun yerini /predict cevaplari alacak)."""
     rnd = random.Random(hash(bel_key) + seed_offset)
     alarm_node_ids = alarm_node_ids or []
     states = {}
@@ -400,7 +510,6 @@ def get_node_states(bel_key, alarm_node_ids=None, seed_offset=0):
 
 
 def check_api_health():
-    """Backend API'nin erisilebilir olup olmadigini kontrol eder."""
     try:
         resp = requests.get(f"{API_URL}/health", timeout=3)
         return resp.status_code == 200 and resp.json().get("model_loaded", False)
@@ -409,28 +518,59 @@ def check_api_health():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FOLIUM HARITA URETIMI
+# TELEGRAM GÖNDERIM FONKSİYONU
+# ─────────────────────────────────────────────────────────────────────────────
+def send_telegram_alert(node_id, adres, pressure, probability, bel_adi):
+    """
+    Telegram Bot API aracılığıyla saha ekibine kaçak alarmı gönderir.
+    TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID Onrender'da Environment Variable olarak tanımlanmalıdır.
+    """
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False, "Telegram bot yapılandırması eksik (BOT_TOKEN veya CHAT_ID tanımlı değil)"
+
+    zaman = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    mesaj = (
+        f"🚨 *KAÇAK ALARMI — AquaSense*\n\n"
+        f"📍 *Adres:* {adres}\n"
+        f"📊 *Ölçüm Noktası:* {node_id}\n"
+        f"💧 *Anlık Basınç:* {pressure} bar\n"
+        f"⚠️ *Kaçak Olasılığı:* %{probability*100:.1f}\n"
+        f"🏛️ *Belediye:* {bel_adi}\n"
+        f"🕐 *Tespit Zamanı:* {zaman}\n\n"
+        f"Lütfen belirtilen adrese en kısa sürede müdahale edin."
+    )
+
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": mesaj,
+            "parse_mode": "Markdown",
+        }
+        resp = requests.post(url, json=payload, timeout=6)
+        if resp.status_code == 200:
+            return True, mesaj
+        else:
+            err = resp.json().get("description", "Bilinmeyen hata")
+            return False, f"Telegram API hatası: {err}"
+    except Exception as e:
+        return False, f"Bağlantı hatası: {str(e)}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FOLIUM HARİTA
 # ─────────────────────────────────────────────────────────────────────────────
 STATUS_COLOR = {"alarm": "#DC2626", "warning": "#B45309", "ok": "#0F766E"}
 STATUS_LABEL = {"alarm": "Alarm", "warning": "Uyarı", "ok": "Normal"}
 
 
 def build_network_map(bel_key, node_states, detay_seviyesi="ozet", highlight_node=None):
-    """
-    Gercek OpenStreetMap uzerine, EPANET topolojisinden turetilmis
-    sebeke gorselini (node + boru hatlari) cizer.
-    detay_seviyesi: 'ozet' (Canli Izleme icin sade) | 'detay' (Sebeke Haritasi icin tum bilgi)
-    """
     bel = BELEDIYELER[bel_key]
     latlon = local_to_latlon(*bel["merkez"], span_km=bel["span_km"])
-
     center = bel["merkez"]
-    m = folium.Map(
-        location=center, zoom_start=15, tiles="CartoDB positron",
-        control_scale=True,
-    )
+    tile = "CartoDB dark_matter" if st.session_state.dark_mode else "CartoDB positron"
+    m = folium.Map(location=center, zoom_start=15, tiles=tile, control_scale=True)
 
-    # Boru hatlari (linkler)
     for pipe_id, n1, n2 in PIPES:
         if n1 in latlon and n2 in latlon:
             s1 = node_states.get(n1, {}).get("status", "ok") if n1 != RESERVOIR_ID else "ok"
@@ -438,21 +578,22 @@ def build_network_map(bel_key, node_states, detay_seviyesi="ozet", highlight_nod
             is_alarm_line = (s1 == "alarm" or s2 == "alarm")
             folium.PolyLine(
                 locations=[latlon[n1], latlon[n2]],
-                color="#DC2626" if is_alarm_line else "#94A3B8",
+                color="#F85149" if is_alarm_line else ("#6E7681" if st.session_state.dark_mode else "#94A3B8"),
                 weight=4 if is_alarm_line else 2.4,
-                opacity=0.85 if is_alarm_line else 0.55,
+                opacity=0.9 if is_alarm_line else 0.6,
             ).add_to(m)
 
-    # Rezervuar
     if RESERVOIR_ID in latlon:
         folium.CircleMarker(
-            location=latlon[RESERVOIR_ID], radius=9, color="#0B1C36",
-            fill=True, fill_color="#0B1C36", fill_opacity=1, weight=2,
+            location=latlon[RESERVOIR_ID], radius=9,
+            color="#FFFFFF" if st.session_state.dark_mode else "#0B1C36",
+            fill=True,
+            fill_color="#4A90D9" if st.session_state.dark_mode else "#0B1C36",
+            fill_opacity=1, weight=2,
             popup=folium.Popup("Rezervuar (Ana Su Kaynağı)", max_width=200),
             tooltip="Rezervuar",
         ).add_to(m)
 
-    # Olcum noktalari (node'lar)
     for nid, (lat, lon) in latlon.items():
         if nid == RESERVOIR_ID:
             continue
@@ -460,7 +601,6 @@ def build_network_map(bel_key, node_states, detay_seviyesi="ozet", highlight_nod
         status = state["status"]
         color = STATUS_COLOR[status]
         is_highlighted = (highlight_node == nid)
-
         radius = 11 if status == "alarm" else (8 if detay_seviyesi == "detay" else 7)
         if is_highlighted:
             radius += 4
@@ -484,14 +624,14 @@ def build_network_map(bel_key, node_states, detay_seviyesi="ozet", highlight_nod
         if status == "alarm":
             folium.Circle(
                 location=(lat, lon), radius=45, color="#DC2626",
-                fill=True, fill_opacity=0.10, weight=1, opacity=0.4,
+                fill=True, fill_opacity=0.12, weight=1, opacity=0.5,
             ).add_to(m)
 
     return m, latlon
-init_state()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SIDEBAR — SOL MENU
+# SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
@@ -499,7 +639,7 @@ with st.sidebar:
         <div class="brand-title">AquaSense</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('<div class="brand-sub" style="margin-top:-14px;margin-bottom:18px">Su Şebekesi Kaçak Tespit Sistemi</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="brand-sub" style="margin-top:-14px;margin-bottom:18px">Su Şebekesi Kaçak Tespit Sistemi</div>', unsafe_allow_html=True)
 
     sayfa = st.radio(
         label="Navigasyon",
@@ -507,7 +647,7 @@ with st.sidebar:
             "Canlı İzleme",
             "Şebeke Haritası",
             "İzole Ölçüm Bölgeleri",
-            "Manuel Tahmin",
+            "Veri Analizi",
             "Sistem & Model",
         ],
         label_visibility="collapsed",
@@ -515,7 +655,15 @@ with st.sidebar:
 
     st.markdown('<hr>', unsafe_allow_html=True)
 
-    st.markdown('<div class="metric-label" style="color:#8FA3C2">Belediye Seçimi</div>', unsafe_allow_html=True)
+    # Dark/Light mode toggle
+    mode_label = "Açık Tema" if st.session_state.dark_mode else "Koyu Tema"
+    if st.button(f"{'☀️' if st.session_state.dark_mode else '🌙'} {mode_label}", use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+
+    st.markdown('<hr>', unsafe_allow_html=True)
+
+    st.markdown(f'<div style="font-size:10.5px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:{COLORS["sidebar_muted"]};margin-bottom:8px">Belediye Seçimi</div>', unsafe_allow_html=True)
     bel_secim = st.selectbox("Belediye", list(BELEDIYELER.keys()), label_visibility="collapsed")
     st.session_state.belediye = bel_secim
     bel = BELEDIYELER[bel_secim]
@@ -523,17 +671,16 @@ with st.sidebar:
     st.markdown('<hr>', unsafe_allow_html=True)
 
     st.markdown(f"""
-    <div style="font-size:12px;line-height:1.9;color:#B9C6DC">
-        <b style="color:#fff">İl:</b> {bel['il']}<br>
-        <b style="color:#fff">Nüfus:</b> {bel['nufus']:,}<br>
-        <b style="color:#fff">İzole Bölge:</b> {len(bel['izole_bolgeler'])}<br>
-        <b style="color:#fff">Ölçüm Noktası:</b> {len(PRESSURE_NODE_IDS)}
+    <div style="font-size:12px;line-height:2;color:{COLORS['sidebar_dim']}">
+        <b style="color:{COLORS['sidebar_text']}">İl:</b> {bel['il']}<br>
+        <b style="color:{COLORS['sidebar_text']}">Nüfus:</b> {bel['nufus']:,}<br>
+        <b style="color:{COLORS['sidebar_text']}">İzole Bölge:</b> {len(bel['izole_bolgeler'])}<br>
+        <b style="color:{COLORS['sidebar_text']}">Ölçüm Noktası:</b> {len(PRESSURE_NODE_IDS)}
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown('<hr>', unsafe_allow_html=True)
 
-    # Baglanti durumu kontrolu
     if not st.session_state.api_durumu_kontrol_edildi:
         st.session_state.api_aktif = check_api_health()
         st.session_state.api_durumu_kontrol_edildi = True
@@ -548,17 +695,17 @@ with st.sidebar:
         st.rerun()
 
     st.markdown('<hr>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:10px;color:#5C7299;">Son güncelleme<br><span style="font-family:JetBrains Mono;color:#8FA3C2">{datetime.now().strftime("%d.%m.%Y %H:%M")}</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:10px;color:{COLORS["sidebar_muted"]};">Son güncelleme<br><span style="font-family:JetBrains Mono;color:{COLORS["sidebar_dim"]}">{datetime.now().strftime("%d.%m.%Y %H:%M")}</span></div>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UST BASLIK (her sayfada ortak)
+# SAYFA BAŞLIĞI (ortak)
 # ─────────────────────────────────────────────────────────────────────────────
 def render_page_header(title, subtitle=None):
     st.markdown(f"""
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <div>
-            <div style="font-size:21px;font-weight:800;color:{COLORS['text']}">{title}</div>
+            <div style="font-size:22px;font-weight:800;color:{COLORS['text']}">{title}</div>
             <div style="font-size:12.5px;color:{COLORS['text_muted']};margin-top:2px">{subtitle or f"{bel_secim} — {bel['il']} İli"}</div>
         </div>
         <div style="font-family:JetBrains Mono;font-size:12px;color:{COLORS['text_muted']};text-align:right">
@@ -566,43 +713,30 @@ def render_page_header(title, subtitle=None):
             <span style="color:{COLORS['navy']};font-weight:600">{datetime.now().strftime("%H:%M:%S")}</span>
         </div>
     </div>
-    <hr style="border-color:{COLORS['border']};margin:14px 0 22px 0">
+    <hr style="border-color:{COLORS['border']};margin:14px 0 20px 0">
     """, unsafe_allow_html=True)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SAYFA: CANLI İZLEME
 # ═════════════════════════════════════════════════════════════════════════════
 if sayfa == "Canlı İzleme":
     render_page_header("Canlı İzleme")
 
-    st.markdown("""<div class="guide-box">
-    Bu sayfa şebeke genelindeki anlık durumu özetler. <b>Harita</b> üzerinde tüm ölçüm noktaları görünür;
-    kaçak şüphesi taşıyan noktalar kırmızı renkle işaretlenir. Sağdaki liste, alarm durumundaki noktaları
-    otomatik olarak üste taşır. Bir kaçak tespit edildiğinde <b>"Ekibi Gönder"</b> butonu aktif hale gelir.
+    st.markdown("""<div class="guide-box-top">
+    Şebeke genelindeki anlık durum. Kaçak şüphesi taşıyan ölçüm noktaları kırmızı olarak işaretlenir;
+    bir alarm tespit edildiğinde <b>Ekibi Gönder</b> butonu aktif hale gelir ve saha ekibine Telegram bildirimi iletilir.
     </div>""", unsafe_allow_html=True)
 
-    # --- Ust satir: gecmis alarmlar + pdf indir ---
-    col_spacer, col_hist, col_pdf = st.columns([6, 1.3, 1.3])
-    with col_hist:
-        gecmis_ac = st.button("Geçmiş Alarmlar", use_container_width=True)
-    with col_pdf:
-        st.button("PDF Olarak İndir", use_container_width=True, key="pdf_canli")
-
-    if gecmis_ac:
-        with st.expander("Geçmiş Müdahale Kayıtları", expanded=True):
-            if st.session_state.ekip_gonderildi:
-                st.dataframe(pd.DataFrame(st.session_state.ekip_gonderildi), use_container_width=True, hide_index=True)
-            else:
-                st.markdown(f'<div style="color:{COLORS["text_faint"]};font-size:13px;padding:12px 0">Henüz ekip yönlendirmesi yapılmadı.</div>', unsafe_allow_html=True)
-
-    # --- Demo durum uretimi (gercek API baglandiginda /predict cevaplariyla degisecek) ---
-    demo_alarm_nodes = [PRESSURE_NODE_IDS[3]]  # ornek: bir node alarmda
+    # Demo durum üretimi
+    demo_alarm_nodes = [PRESSURE_NODE_IDS[3]]
     node_states = get_node_states(bel_secim, demo_alarm_nodes)
 
     alarm_count = sum(1 for s in node_states.values() if s["status"] == "alarm")
     warning_count = sum(1 for s in node_states.values() if s["status"] == "warning")
     ok_count = sum(1 for s in node_states.values() if s["status"] == "ok")
 
-    # --- Ust metrik satiri ---
+    # Üst metrik satırı
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         cls = "alarm" if alarm_count > 0 else "ok"
@@ -617,7 +751,7 @@ if sayfa == "Canlı İzleme":
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-    # --- Harita + Dinamik Liste ---
+    # Harita + Dinamik Liste
     col_map, col_list = st.columns([2, 1])
 
     with col_map:
@@ -630,10 +764,8 @@ if sayfa == "Canlı İzleme":
 
     with col_list:
         st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Ölçüm Noktaları <span class="hint">Alarm önce</span></div>', unsafe_allow_html=True)
-
         order = {"alarm": 0, "warning": 1, "ok": 2}
         sorted_nodes = sorted(node_states.items(), key=lambda x: (order[x[1]["status"]], x[0]))
-
         list_container = st.container(height=420)
         with list_container:
             for nid, state in sorted_nodes:
@@ -644,7 +776,7 @@ if sayfa == "Canlı İzleme":
                 st.markdown(f"""
                 <div class="{row_cls}">
                     <div>
-                        <div style="font-weight:600;font-size:13px">Ölçüm Noktası {nid}</div>
+                        <div style="font-weight:600;font-size:13px;color:{COLORS['text']}">Ölçüm Noktası {nid}</div>
                         <div style="font-family:JetBrains Mono;font-size:11px;color:{COLORS['text_muted']}">{state['pressure']} bar · {state['flow']} m³/h</div>
                     </div>
                     <span class="badge {badge_cls}">{badge_text}</span>
@@ -653,26 +785,28 @@ if sayfa == "Canlı İzleme":
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-    # --- Detay paneli + Ekibi Gonder ---
-    col_detail, col_action = st.columns([2, 1])
-
+    # Detay paneli + Ekibi Gönder
     alarm_nodes_list = [nid for nid, s in node_states.items() if s["status"] == "alarm"]
     has_alarm = len(alarm_nodes_list) > 0
 
+    col_detail, col_action = st.columns([2, 1])
+
     with col_detail:
-        st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Detay ve Açıklama Paneli</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Tespit Detayı</div>', unsafe_allow_html=True)
         if has_alarm:
             primary = alarm_nodes_list[0]
             st_data = node_states[primary]
             st.markdown(f"""
             <div class="metric-card alarm">
                 <div class="metric-label">Tespit Edilen Anomali</div>
-                <div style="font-size:15px;font-weight:700;color:{COLORS['alarm']};margin-bottom:6px">Ölçüm Noktası {primary} — Kaçak Şüphesi</div>
-                <div style="font-size:12.5px;color:{COLORS['text_muted']};line-height:1.7">
-                    Bu noktada anlık basınç değeri ({st_data['pressure']} bar) beklenen aralığın
-                    önemli ölçüde altında. Model, bu örüntüyü <b>%{st_data['probability']*100:.1f}</b> olasılıkla
-                    kaçak olarak sınıflandırdı. Şebeke topolojisine göre bu nokta, ana hat üzerinde
-                    yer almakta ve çevresindeki {len([p for p in PIPES if primary in (p[1], p[2])])} boru hattını etkilemektedir.
+                <div style="font-size:16px;font-weight:800;color:{COLORS['alarm']};margin-bottom:8px">
+                    Ölçüm Noktası {primary} — Kaçak Şüphesi
+                </div>
+                <div style="font-size:13px;color:{COLORS['text']};line-height:1.75">
+                    Anlık basınç: <span style="font-family:JetBrains Mono;font-weight:700;color:{COLORS['alarm']}">{st_data['pressure']} bar</span>
+                    (beklenen: &gt;3.0 bar)<br>
+                    Model kaçak olasılığı: <span style="font-family:JetBrains Mono;font-weight:700;color:{COLORS['alarm']}">%{st_data['probability']*100:.1f}</span><br>
+                    Etkilenen boru hattı sayısı: <span style="font-family:JetBrains Mono;font-weight:700">{len([p for p in PIPES if primary in (p[1], p[2])])}</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -681,54 +815,125 @@ if sayfa == "Canlı İzleme":
             <div class="metric-card ok">
                 <div class="metric-label">Genel Durum</div>
                 <div style="font-size:15px;font-weight:700;color:{COLORS['ok']};margin-bottom:6px">Şebeke Normal Çalışıyor</div>
-                <div style="font-size:12.5px;color:{COLORS['text_muted']};line-height:1.7">
-                    Şu anda hiçbir ölçüm noktasında kaçak şüphesi tespit edilmedi. Tüm basınç ve debi
-                    değerleri beklenen aralıklar içinde. Sistem her 30 dakikada bir otomatik olarak
-                    yeniden değerlendirme yapar.
+                <div style="font-size:13px;color:{COLORS['text_muted']};line-height:1.7">
+                    Şu anda hiçbir ölçüm noktasında kaçak şüphesi tespit edilmedi.
+                    Tüm basınç ve debi değerleri beklenen aralıklar içinde.
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
     with col_action:
-        st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Operasyon</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Saha Operasyonu</div>', unsafe_allow_html=True)
 
-        btn_container_cls = "action-btn-active" if has_alarm else ""
-        st.markdown(f'<div class="{btn_container_cls}">', unsafe_allow_html=True)
-        ekip_gonder_clicked = st.button(
-            "Ekibi Gönder" if has_alarm else "Ekibi Gönder (Alarm Yok)",
-            disabled=not has_alarm,
-            use_container_width=True,
-            key="ekip_gonder_btn",
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        if ekip_gonder_clicked and has_alarm:
+        if has_alarm:
             primary = alarm_nodes_list[0]
+            st_data = node_states[primary]
             adres = random.choice(bel["ornek_adresler"])
-            st.session_state.ekip_gonderildi.append({
-                "Zaman": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                "Ölçüm Noktası": f"Node {primary}",
-                "Adres": adres,
-                "Belediye": bel_secim,
-            })
+
+            # Gönderilecek bilgileri önizle
             st.markdown(f"""
-            <div class="success-banner">
-                ✓ Birlik Gönderildi — Hedef Adres: {adres}
+            <div style="background:{COLORS['alarm_bg']};border:2px solid {COLORS['alarm']};border-radius:10px;padding:14px 16px;margin-bottom:16px">
+                <div style="font-size:11px;font-weight:700;color:{COLORS['alarm']};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Ekibe İletilecek Bilgi</div>
+                <div style="font-size:12px;color:{COLORS['text']};line-height:1.8;font-family:JetBrains Mono">
+                    Nokta: {primary}<br>
+                    Basınç: {st_data['pressure']} bar<br>
+                    Olasılık: %{st_data['probability']*100:.1f}<br>
+                    Adres: {adres[:30]}...
+                </div>
             </div>
             """, unsafe_allow_html=True)
 
-        if not has_alarm:
-            st.markdown(f'<div style="font-size:11.5px;color:{COLORS["text_faint"]};margin-top:8px;line-height:1.6">Buton, sistem bir kaçak tespit ettiğinde otomatik olarak aktif hale gelir.</div>', unsafe_allow_html=True)
+            btn_container = st.container()
+            with btn_container:
+                st.markdown('<div class="action-btn-active">', unsafe_allow_html=True)
+                ekip_gonder_clicked = st.button(
+                    "🚨  EKİBİ GÖNDER",
+                    use_container_width=True,
+                    key="ekip_gonder_btn",
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            if ekip_gonder_clicked:
+                # Telegram gönder
+                tg_ok, tg_mesaj = send_telegram_alert(
+                    node_id=primary,
+                    adres=adres,
+                    pressure=st_data["pressure"],
+                    probability=st_data["probability"],
+                    bel_adi=bel_secim,
+                )
+
+                # Kayıt
+                st.session_state.ekip_gonderildi.append({
+                    "Zaman": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                    "Ölçüm Noktası": f"Node {primary}",
+                    "Adres": adres,
+                    "Belediye": bel_secim,
+                    "Telegram": "Gönderildi" if tg_ok else "Başarısız",
+                })
+                st.session_state.telegram_son_mesaj = {"ok": tg_ok, "mesaj": tg_mesaj, "adres": adres}
+
+            # Sonuç göster
+            if st.session_state.telegram_son_mesaj:
+                tg = st.session_state.telegram_son_mesaj
+                if tg["ok"]:
+                    st.markdown(f"""
+                    <div class="telegram-banner">
+                        <div class="tg-title">✅ Ekip Yönlendirildi</div>
+                        Saha ekibine Telegram bildirimi iletildi.
+                        <div class="tg-detail">Hedef: {tg['adres']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="telegram-banner error">
+                        <div class="tg-title">⚠️ Telegram Gönderilemedi</div>
+                        {tg['mesaj']}<br>
+                        <span style="font-size:11px">Onrender'da BOT_TOKEN ve CHAT_ID tanımlı mı?</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.button(
+                "Ekibi Gönder (Alarm Yok)",
+                disabled=True,
+                use_container_width=True,
+                key="ekip_gonder_btn",
+            )
+            st.markdown(f'<div style="font-size:12px;color:{COLORS["text_faint"]};margin-top:10px;line-height:1.7;text-align:center">Kaçak tespit edildiğinde bu buton otomatik aktif hale gelir ve saha ekibine Telegram bildirimi gönderir.</div>', unsafe_allow_html=True)
+
+        # Geçmiş müdahaleler
+        if st.session_state.ekip_gonderildi:
+            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:11px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Müdahale Geçmişi</div>', unsafe_allow_html=True)
+            with st.expander(f"{len(st.session_state.ekip_gonderildi)} kayıt", expanded=False):
+                st.dataframe(pd.DataFrame(st.session_state.ekip_gonderildi), use_container_width=True, hide_index=True)
+
+    # Alt detaylı açıklama
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>Bu Sayfa Hakkında</h4>
+    <b>Canlı İzleme</b> sayfası, su şebekesindeki tüm ölçüm noktalarının anlık basınç ve debi
+    değerlerini gösterir. XGBoost modeli her noktayı bağımsız olarak değerlendirir; anormallik
+    tespit edildiğinde ilgili nokta kırmızıya döner ve alarm sayacı artar.<br><br>
+    <b>Ekibi Gönder</b> butonu yalnızca aktif alarm durumunda çalışır. Tıklandığında, önceden
+    yapılandırılmış Telegram bot üzerinden saha ekibine ölçüm noktası, adres, basınç değeri
+    ve kaçak olasılığı içeren bir bildirim mesajı iletilir. Bu özelliği kullanmak için
+    Onrender'da <span style="font-family:JetBrains Mono">TELEGRAM_BOT_TOKEN</span> ve
+    <span style="font-family:JetBrains Mono">TELEGRAM_CHAT_ID</span> environment variable olarak
+    tanımlanmalıdır.<br><br>
+    <b>Demo notu:</b> Şu anda gösterilen veriler simülasyon amaçlıdır. Gerçek API bağlantısı
+    kurulduğunda, bu veriler modelin /predict çıktısıyla otomatik olarak güncellenecektir.
+    </div>""", unsafe_allow_html=True)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
-# SAYFA: ŞEBEKE HARİTASI (detayli seviye)
+# SAYFA: ŞEBEKE HARİTASI
 # ═════════════════════════════════════════════════════════════════════════════
 elif sayfa == "Şebeke Haritası":
     render_page_header("Şebeke Haritası")
 
-    st.markdown("""<div class="guide-box">
-    Bu sayfa, seçili belediyeye ait tüm ölçüm noktalarını ve boru hatlarını gerçek coğrafi konumları
-    üzerinde gösterir. Şebeke yapısı, EPANET hidrolik model verisinden türetilmiştir.
-    Bir noktaya tıklayarak basınç, debi ve kaçak olasılığı detaylarını görüntüleyebilirsiniz.
+    st.markdown("""<div class="guide-box-top">
+    Tüm ölçüm noktaları ve boru hatları gerçek coğrafi konumları üzerinde. Bir noktaya tıklayarak
+    basınç, debi ve kaçak olasılığı detaylarını görebilirsiniz.
     </div>""", unsafe_allow_html=True)
 
     demo_alarm_nodes = [PRESSURE_NODE_IDS[3]]
@@ -750,7 +955,7 @@ elif sayfa == "Şebeke Haritası":
             ("Toplam Boru Hattı", str(len(PIPES))),
             ("Ana Su Kaynağı", "1 Rezervuar"),
             ("Aktif Alarm", str(sum(1 for s in node_states.values() if s["status"] == "alarm"))),
-            ("Veri Kaynağı", "EPANET / Hanoi Topolojisi"),
+            ("Veri Kaynağı", "EPANET / Hanoi"),
         ]
         for label, val in info_items:
             st.markdown(f"""<div class="node-row" style="margin-bottom:6px">
@@ -760,11 +965,11 @@ elif sayfa == "Şebeke Haritası":
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
-        <div style="font-size:11.5px;color:{COLORS['text_muted']};line-height:1.7">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{COLORS['alarm']};margin-right:6px"></span>Alarm<br>
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{COLORS['warning']};margin-right:6px"></span>Uyarı<br>
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{COLORS['ok']};margin-right:6px"></span>Normal<br>
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{COLORS['navy']};margin-right:6px"></span>Rezervuar
+        <div style="font-size:12px;color:{COLORS['text_muted']};line-height:2">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{COLORS['alarm']};margin-right:6px"></span>Alarm<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{COLORS['warning']};margin-right:6px"></span>Uyarı<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{COLORS['ok']};margin-right:6px"></span>Normal<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{COLORS['navy']};margin-right:6px"></span>Rezervuar
         </div>
         """, unsafe_allow_html=True)
 
@@ -784,17 +989,27 @@ elif sayfa == "Şebeke Haritası":
         })
     st.dataframe(pd.DataFrame(node_table), use_container_width=True, hide_index=True)
 
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>Bu Sayfa Hakkında</h4>
+    Harita verisi, LeakDB projesinde kullanılan <b>Hanoi su şebekesi</b> EPANET modelinden
+    türetilmiştir. 32 ölçüm noktası ve 34 boru hattından oluşan bu topoloji, gerçek şebeke
+    yapısını temsil eder; ancak coğrafi koordinatlar seçilen belediyenin merkezi etrafına
+    matematiksel olarak ölçeklenerek yerleştirilmiştir.<br><br>
+    <b>Haritada renk kodlaması:</b> Kırmızı noktalar aktif alarm (kaçak şüphesi), amber/sarı
+    uyarı durumu, yeşil ise normal operasyonu ifade eder. Kırmızı boru hatları, her iki
+    ucunda da alarm olan segmentleri gösterir.
+    </div>""", unsafe_allow_html=True)
+
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SAYFA: İZOLE ÖLÇÜM BÖLGELERİ (DMA)
+# SAYFA: İZOLE ÖLÇÜM BÖLGELERİ
 # ═════════════════════════════════════════════════════════════════════════════
 elif sayfa == "İzole Ölçüm Bölgeleri":
     render_page_header("İzole Ölçüm Bölgeleri")
 
-    st.markdown("""<div class="guide-box">
-    İzole Ölçüm Bölgesi (İÖB), şebekenin su dengesi ve kaçak riskinin ayrı ayrı izlenebilmesi için
-    bölündüğü alt bölgelerdir. Bu sayfa her bölgenin ortalama basınç, debi ve tahmini kayıp oranını
-    karşılaştırır. Riskli bölgeler listenin en üstünde gösterilir.
+    st.markdown("""<div class="guide-box-top">
+    Şebekenin bölge bazında su dengesi ve kayıp analizi. Riskli bölgeler listenin en üstünde
+    gösterilir; her bölge için tahmini kayıp oranı ve aktif alarm sayısı izlenebilir.
     </div>""", unsafe_allow_html=True)
 
     izole_bolgeler = bel["izole_bolgeler"]
@@ -832,7 +1047,7 @@ elif sayfa == "İzole Ölçüm Bölgeleri":
                 <div class="metric-label">{row['Bölge']}</div>
                 <div class="metric-value">{row['Kayıp Tahmini (%)']:.1f}%</div>
                 <div class="metric-sub">Tahmini su kaybı</div>
-                <div style="margin-top:8px;font-size:11px;color:{COLORS['text_muted']}">
+                <div style="margin-top:10px;font-size:12px;color:{COLORS['text_muted']}">
                     Basınç: <span style="font-family:JetBrains Mono">{row['Ort. Basınç (bar)']} bar</span><br>
                     Aktif Alarm: <span style="font-family:JetBrains Mono;color:{COLORS['alarm'] if row['Aktif Alarm']>0 else COLORS['ok']}">{row['Aktif Alarm']}</span>
                 </div>
@@ -856,97 +1071,257 @@ elif sayfa == "İzole Ölçüm Bölgeleri":
         trend_data[row["Bölge"].split(" ")[0]] = series
     df_trend = pd.DataFrame(trend_data, index=[f"{h:02d}:00" for h in hours])
     st.line_chart(df_trend, height=240)
-# ═════════════════════════════════════════════════════════════════════════════
-# SAYFA: MANUEL TAHMIN
-# ═════════════════════════════════════════════════════════════════════════════
-elif sayfa == "Manuel Tahmin":
-    render_page_header("Manuel Tahmin")
 
-    st.markdown("""<div class="guide-box">
-    Bu sayfa, sahadan alınan anlık sensör ölçümlerini modele göndererek tek seferlik kaçak tahmini
-    yapmanızı sağlar. Değerleri girip <b>"Tahmin Yap"</b> butonuna basın. Sonuç, kaçak olasılığı ve
-    şüpheli ölçüm noktalarıyla birlikte gösterilir.
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>Bu Sayfa Hakkında</h4>
+    <b>İzole Ölçüm Bölgesi (İÖB)</b>, şebekenin su dengesi ve kaçak riskinin alt bölgeler
+    bazında izlenebilmesi amacıyla oluşturulan bağımsız ölçüm alanlarıdır. Her İÖB'de giriş
+    ve çıkış debisi ölçülerek bölgeye özgü su kayıp oranı hesaplanır.<br><br>
+    <b>Renk kodlaması:</b> Kırmızı bölgelerde aktif alarm mevcuttur ve öncelikli müdahale
+    gerektirir. Amber/sarı bölgeler yakın takip gerektiren anormal değerler içermektedir.
+    Yeşil bölgeler normal operasyon aralığındadır.<br><br>
+    <b>24 saatlik trend grafiği</b> bölge bazında basınç değişimini gösterir. Gece saatlerinde
+    (22:00–06:00) düşük talep döneminde tespit edilen basınç kayıpları özellikle anlamlıdır,
+    zira bu saatlerde meşru tüketim minimumdadır.
     </div>""", unsafe_allow_html=True)
 
-    col_form, col_result = st.columns([1, 1])
 
-    with col_form:
-        st.markdown(f'<div style="font-size:13px;font-weight:700;color:{COLORS["text"]};margin-bottom:14px">Sensör Değerleri <span class="hint">Saat ve örnek noktalar</span></div>', unsafe_allow_html=True)
+# ═════════════════════════════════════════════════════════════════════════════
+# SAYFA: VERİ ANALİZİ (Manuel Tahmin + Yayın Verisi)
+# ═════════════════════════════════════════════════════════════════════════════
+elif sayfa == "Veri Analizi":
+    render_page_header("Veri Analizi")
 
-        hour_val = st.slider("Saat (0–23)", 0, 23, datetime.now().hour)
+    st.markdown("""<div class="guide-box-top">
+    İki farklı analiz modu: <b>Manuel Test</b> ile sensör değerlerini siz girerek modelin nasıl
+    çalıştığını test edebilirsiniz. <b>Yayın Verisi</b> sekmesi ise API'den gelen gerçek zamanlı
+    tahmin akışını gösterir.
+    </div>""", unsafe_allow_html=True)
 
-        st.markdown(f'<div style="font-size:11.5px;color:{COLORS["text_muted"]};margin:14px 0 8px;font-weight:600">Basınç Değerleri (bar)</div>', unsafe_allow_html=True)
-        node_cols = st.columns(3)
-        p_values = {}
-        sample_nodes = [2, 5, 10, 15, 20, 25]
-        for idx, n in enumerate(sample_nodes):
-            with node_cols[idx % 3]:
-                p_values[f"P_Node_{n}"] = st.number_input(f"Nokta {n}", value=4.0, step=0.1, key=f"p{n}")
+    tab_manuel, tab_yayin = st.tabs(["Manuel Test", "Yayın Verisi"])
 
-        st.markdown(f'<div style="font-size:11.5px;color:{COLORS["text_muted"]};margin:14px 0 8px;font-weight:600">Debi Değerleri (m³/h)</div>', unsafe_allow_html=True)
-        link_cols = st.columns(3)
-        f_values = {}
-        sample_links = [1, 5, 10, 15, 20, 25]
-        for idx, n in enumerate(sample_links):
-            with link_cols[idx % 3]:
-                f_values[f"F_Link_{n}"] = st.number_input(f"Hat {n}", value=2.0, step=0.1, key=f"f{n}")
+    # ── Tab 1: Manuel Test (API'den bağımsız) ─────────────────────────────────
+    with tab_manuel:
+        st.markdown(f"""
+        <div style="margin:16px 0 20px 0;padding:14px 18px;background:{COLORS['panel_alt']};border-radius:8px;font-size:13px;color:{COLORS['text_muted']};border:1px solid {COLORS['border']}">
+            Bu sekme <b>API'den tamamen bağımsız</b> çalışır. Sensör değerlerini manuel olarak
+            girin; kaçak tespiti model mantığını taklit eden basit kural tabanlı bir değerlendirme
+            ile yapılır. Gerçek modeli test etmek için <b>Yayın Verisi</b> sekmesini kullanın.
+        </div>
+        """, unsafe_allow_html=True)
 
-        predict_btn = st.button("Tahmin Yap", use_container_width=True)
+        col_form, col_result = st.columns([1, 1])
 
-    with col_result:
-        st.markdown(f'<div style="font-size:13px;font-weight:700;color:{COLORS["text"]};margin-bottom:14px">Tahmin Sonucu</div>', unsafe_allow_html=True)
+        with col_form:
+            st.markdown(f'<div style="font-size:13.5px;font-weight:700;color:{COLORS["text"]};margin-bottom:16px">Sensör Değerleri Girişi</div>', unsafe_allow_html=True)
 
-        if predict_btn:
-            payload = {}
-            for i in PRESSURE_NODE_IDS:
-                payload[f"P_Node_{i}"] = p_values.get(f"P_Node_{i}", 4.0)
-            for i in FLOW_LINK_IDS:
-                payload[f"F_Link_{i}"] = f_values.get(f"F_Link_{i}", 2.0)
-            for i in DEMAND_NODE_IDS:
-                payload[f"D_Node_{i}"] = 1.5
-            payload["hour"] = hour_val
-            payload["timestamp"] = datetime.now().isoformat()
+            hour_val = st.slider("Ölçüm Saati (0–23)", 0, 23, datetime.now().hour)
 
-            api_ok = True
-            try:
-                resp = requests.post(f"{API_URL}/predict", json=payload, timeout=6)
-                data = resp.json()
-                pred = data.get("prediction", 0)
-                proba = data.get("leak_probability", 0.0)
-                suspicious = data.get("suspicious_nodes", [])
-            except Exception:
-                api_ok = False
-                pred, proba, suspicious = 0, 0.0, []
+            st.markdown(f'<div style="font-size:12px;color:{COLORS["text_muted"]};margin:16px 0 10px;font-weight:700">Basınç Değerleri (bar) — Örnek Noktalar</div>', unsafe_allow_html=True)
+            node_cols = st.columns(3)
+            p_values = {}
+            sample_nodes = [2, 5, 10, 15, 20, 25]
+            for idx, n in enumerate(sample_nodes):
+                with node_cols[idx % 3]:
+                    p_values[f"P_Node_{n}"] = st.number_input(
+                        f"Nokta {n}", value=4.0, step=0.1, key=f"mt_p{n}",
+                        min_value=0.0, max_value=10.0
+                    )
 
-            if not api_ok:
-                st.markdown(f'<div class="status-pill offline" style="margin-bottom:14px">Sunucuya erişilemedi — lütfen bağlantıyı kontrol edin</div>', unsafe_allow_html=True)
-            else:
+            st.markdown(f'<div style="font-size:12px;color:{COLORS["text_muted"]};margin:16px 0 10px;font-weight:700">Debi Değerleri (m³/h) — Örnek Hatlar</div>', unsafe_allow_html=True)
+            link_cols = st.columns(3)
+            f_values = {}
+            sample_links = [1, 5, 10, 15, 20, 25]
+            for idx, n in enumerate(sample_links):
+                with link_cols[idx % 3]:
+                    f_values[f"F_Link_{n}"] = st.number_input(
+                        f"Hat {n}", value=2.0, step=0.1, key=f"mt_f{n}",
+                        min_value=0.0, max_value=20.0
+                    )
+
+            manuel_test_btn = st.button("Analiz Et", use_container_width=True, key="manuel_test_btn")
+
+        with col_result:
+            st.markdown(f'<div style="font-size:13.5px;font-weight:700;color:{COLORS["text"]};margin-bottom:16px">Analiz Sonucu</div>', unsafe_allow_html=True)
+
+            if manuel_test_btn:
+                # API'den bağımsız kural tabanlı değerlendirme
+                avg_pressure = np.mean(list(p_values.values()))
+                min_pressure = min(p_values.values())
+                avg_flow = np.mean(list(f_values.values()))
+
+                # Basit kural motoru
+                kaçak_skoru = 0.0
+                sebep_listesi = []
+
+                if min_pressure < 2.0:
+                    kaçak_skoru += 0.45
+                    sebep_listesi.append(f"Kritik düşük basınç: {min_pressure:.2f} bar")
+                elif min_pressure < 3.0:
+                    kaçak_skoru += 0.25
+                    sebep_listesi.append(f"Düşük basınç: {min_pressure:.2f} bar")
+
+                if avg_pressure < 2.5:
+                    kaçak_skoru += 0.30
+                    sebep_listesi.append(f"Ortalama basınç düşük: {avg_pressure:.2f} bar")
+
+                if 0 <= hour_val <= 5 and avg_flow > 3.5:
+                    kaçak_skoru += 0.30
+                    sebep_listesi.append(f"Gece saatinde yüksek debi: {avg_flow:.2f} m³/h")
+
+                if avg_flow > 5.0:
+                    kaçak_skoru += 0.20
+                    sebep_listesi.append(f"Anormal yüksek debi: {avg_flow:.2f} m³/h")
+
+                kaçak_skoru = min(kaçak_skoru, 0.99)
+                pred = 1 if kaçak_skoru >= 0.45 else 0
+
                 cls = "alarm" if pred == 1 else "ok"
-                verdict = "KAÇAK TESPİT EDİLDİ" if pred == 1 else "NORMAL"
+                verdict = "KAÇAK ŞÜPHESİ" if pred == 1 else "NORMAL"
                 verdict_color = COLORS["alarm"] if pred == 1 else COLORS["ok"]
 
                 st.markdown(f"""<div class="metric-card {cls}" style="margin-bottom:16px">
-                    <div class="metric-label">Tahmin Sonucu</div>
-                    <div style="font-size:24px;font-weight:800;color:{verdict_color};font-family:JetBrains Mono">{verdict}</div>
-                    <div class="metric-sub">Kaçak olasılığı: <span style="font-family:JetBrains Mono;color:{verdict_color};font-weight:700">{proba:.3f}</span></div>
+                    <div class="metric-label">Manuel Test Sonucu</div>
+                    <div style="font-size:26px;font-weight:800;color:{verdict_color};font-family:JetBrains Mono">{verdict}</div>
+                    <div class="metric-sub">Hesaplanan risk skoru: <span style="font-family:JetBrains Mono;color:{verdict_color};font-weight:700">{kaçak_skoru:.3f}</span></div>
                 </div>""", unsafe_allow_html=True)
 
-                if suspicious:
-                    st.markdown(f'<div class="metric-card alarm"><div class="metric-label">Şüpheli Ölçüm Noktaları</div><div style="font-family:JetBrains Mono;font-size:13px">{", ".join(suspicious)}</div></div>', unsafe_allow_html=True)
+                if sebep_listesi:
+                    st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Tespit Gerekçeleri</div>', unsafe_allow_html=True)
+                    for s in sebep_listesi:
+                        icon = "🔴" if pred == 1 else "⚠️"
+                        st.markdown(f'<div style="font-size:13px;padding:8px 12px;background:{COLORS["panel_alt"]};border-radius:6px;margin-bottom:6px;color:{COLORS["text"]};border:1px solid {COLORS["border"]}">{icon} {s}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div style="font-size:13px;padding:12px;background:{COLORS["ok_bg"]};border-radius:6px;color:{COLORS["ok"]};border:1px solid {COLORS["ok"]}">✓ Tüm değerler normal aralıkta.</div>', unsafe_allow_html=True)
 
                 st.session_state.manuel_tahmin_log.append({
                     "Zaman": datetime.now().strftime("%H:%M:%S"),
-                    "Tahmin": verdict,
-                    "Olasılık": f"{proba:.3f}",
+                    "Sonuç": verdict,
+                    "Risk Skoru": f"{kaçak_skoru:.3f}",
+                    "Min. Basınç": f"{min_pressure:.2f} bar",
+                    "Ort. Debi": f"{avg_flow:.2f} m³/h",
                     "Saat": hour_val,
                 })
-        else:
-            st.markdown(f'<div style="color:{COLORS["text_faint"]};font-size:13px;padding:50px 0;text-align:center">Değerleri girin ve "Tahmin Yap" butonuna basın.</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="color:{COLORS["text_faint"]};font-size:13px;padding:50px 0;text-align:center">Değerleri girin ve "Analiz Et" butonuna basın.</div>', unsafe_allow_html=True)
 
-        if st.session_state.manuel_tahmin_log:
-            st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-            st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Oturum Tahmin Geçmişi</div>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(st.session_state.manuel_tahmin_log[-10:]), use_container_width=True, hide_index=True)
+            if st.session_state.manuel_tahmin_log:
+                st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Oturum Geçmişi</div>', unsafe_allow_html=True)
+                st.dataframe(pd.DataFrame(st.session_state.manuel_tahmin_log[-10:]), use_container_width=True, hide_index=True)
+
+    # ── Tab 2: Yayın Verisi (API'den) ─────────────────────────────────────────
+    with tab_yayin:
+        st.markdown(f"""
+        <div style="margin:16px 0 20px 0;padding:14px 18px;background:{COLORS['panel_alt']};border-radius:8px;font-size:13px;color:{COLORS['text_muted']};border:1px solid {COLORS['border']}">
+            Bu sekme, FastAPI backend'e gerçek bir /predict isteği gönderir ve modelin döndürdüğü
+            ham tahmin verisini gösterir. <b>Bağlantı durumu:</b>
+            {"<span style='color:" + COLORS['ok'] + ";font-weight:700'> Çevrimiçi</span>" if st.session_state.api_aktif else "<span style='color:" + COLORS['alarm'] + ";font-weight:700'> Çevrimdışı</span>"}
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_yayin_form, col_yayin_result = st.columns([1, 1])
+
+        with col_yayin_form:
+            st.markdown(f'<div style="font-size:13.5px;font-weight:700;color:{COLORS["text"]};margin-bottom:16px">API İsteği Parametreleri</div>', unsafe_allow_html=True)
+
+            hour_yayin = st.slider("Ölçüm Saati (0–23)", 0, 23, datetime.now().hour, key="yayin_hour")
+
+            st.markdown(f'<div style="font-size:12px;color:{COLORS["text_muted"]};margin:16px 0 10px;font-weight:700">Basınç Değerleri (bar)</div>', unsafe_allow_html=True)
+            yayin_cols = st.columns(3)
+            yp_values = {}
+            for idx, n in enumerate(sample_nodes):
+                with yayin_cols[idx % 3]:
+                    yp_values[f"P_Node_{n}"] = st.number_input(
+                        f"Nokta {n}", value=4.0, step=0.1, key=f"yp{n}",
+                        min_value=0.0, max_value=10.0
+                    )
+
+            st.markdown(f'<div style="font-size:12px;color:{COLORS["text_muted"]};margin:16px 0 10px;font-weight:700">Debi Değerleri (m³/h)</div>', unsafe_allow_html=True)
+            yayin_link_cols = st.columns(3)
+            yf_values = {}
+            for idx, n in enumerate(sample_links):
+                with yayin_link_cols[idx % 3]:
+                    yf_values[f"F_Link_{n}"] = st.number_input(
+                        f"Hat {n}", value=2.0, step=0.1, key=f"yf{n}",
+                        min_value=0.0, max_value=20.0
+                    )
+
+            yayin_btn = st.button("API'ye Gönder", use_container_width=True, key="yayin_btn")
+
+        with col_yayin_result:
+            st.markdown(f'<div style="font-size:13.5px;font-weight:700;color:{COLORS["text"]};margin-bottom:16px">API Yanıtı</div>', unsafe_allow_html=True)
+
+            if yayin_btn:
+                payload = {}
+                for i in PRESSURE_NODE_IDS:
+                    payload[f"P_Node_{i}"] = yp_values.get(f"P_Node_{i}", 4.0)
+                for i in FLOW_LINK_IDS:
+                    payload[f"F_Link_{i}"] = yf_values.get(f"F_Link_{i}", 2.0)
+                for i in DEMAND_NODE_IDS:
+                    payload[f"D_Node_{i}"] = 1.5
+                payload["hour"] = hour_yayin
+                payload["timestamp"] = datetime.now().isoformat()
+
+                with st.spinner("API'ye istek gönderiliyor..."):
+                    try:
+                        resp = requests.post(f"{API_URL}/predict", json=payload, timeout=8)
+                        data = resp.json()
+                        pred = data.get("prediction", 0)
+                        proba = data.get("leak_probability", 0.0)
+                        suspicious = data.get("suspicious_nodes", [])
+                        api_ok = True
+                    except Exception as e:
+                        api_ok = False
+                        pred, proba, suspicious = 0, 0.0, []
+                        api_err = str(e)
+
+                if not api_ok:
+                    st.markdown(f"""
+                    <div class="metric-card alarm">
+                        <div class="metric-label">Bağlantı Hatası</div>
+                        <div style="font-size:14px;color:{COLORS['alarm']};font-weight:700">API'ye erişilemedi</div>
+                        <div class="metric-sub">{api_err}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    cls = "alarm" if pred == 1 else "ok"
+                    verdict = "KAÇAK TESPİT EDİLDİ" if pred == 1 else "NORMAL"
+                    verdict_color = COLORS["alarm"] if pred == 1 else COLORS["ok"]
+
+                    st.markdown(f"""<div class="metric-card {cls}" style="margin-bottom:16px">
+                        <div class="metric-label">API Tahmin Sonucu</div>
+                        <div style="font-size:24px;font-weight:800;color:{verdict_color};font-family:JetBrains Mono">{verdict}</div>
+                        <div class="metric-sub">Kaçak olasılığı: <span style="font-family:JetBrains Mono;color:{verdict_color};font-weight:700">{proba:.4f}</span></div>
+                    </div>""", unsafe_allow_html=True)
+
+                    if suspicious:
+                        st.markdown(f"""
+                        <div class="metric-card alarm">
+                            <div class="metric-label">Şüpheli Ölçüm Noktaları</div>
+                            <div style="font-family:JetBrains Mono;font-size:13px;color:{COLORS['text']}">{", ".join(suspicious)}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # Ham JSON
+                    with st.expander("Ham API Yanıtı (JSON)", expanded=False):
+                        st.json(data)
+            else:
+                st.markdown(f'<div style="color:{COLORS["text_faint"]};font-size:13px;padding:50px 0;text-align:center">Parametreleri girin ve "API\'ye Gönder" butonuna basın.</div>', unsafe_allow_html=True)
+
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>Bu Sayfa Hakkında</h4>
+    <b>Manuel Test</b> sekmesi, API bağlantısı olmadan bile kaçak tespit mantığını anlamak
+    için kullanılabilir. Girilen basınç ve debi değerleri üzerinden kural tabanlı bir
+    risk skorlaması yapılır: kritik basınç düşüşü, gece saatlerinde anormal debi gibi
+    göstergeler değerlendirilir. Bu sekme eğitim, demo ve bağlantı olmayan ortamlar için
+    tasarlanmıştır.<br><br>
+    <b>Yayın Verisi</b> sekmesi ise FastAPI backend'deki gerçek XGBoost modeline istek
+    gönderir. Model 161 özellik (tüm ölçüm noktalarının basınç, debi, talep değerleri +
+    saat) üzerinden kaçak olasılığı hesaplar ve şüpheli noktaları döndürür. API çevrimdışıysa
+    bu sekme bağlantı hatası verir; bağlantıyı sol menüdeki "Bağlantıyı Yenile" butonu
+    ile kontrol edebilirsiniz.
+    </div>""", unsafe_allow_html=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -955,10 +1330,26 @@ elif sayfa == "Manuel Tahmin":
 elif sayfa == "Sistem & Model":
     render_page_header("Sistem & Model")
 
-    st.markdown("""<div class="guide-box">
-    Bu sayfa AquaSense sisteminin teknik altyapısını ve model performansını özetler.
-    Yarışma jürisi veya teknik ekip için referans niteliğindedir.
+    st.markdown("""<div class="guide-box-top">
+    AquaSense'in teknik altyapısı, model performansı ve MVP kapsamı. Jüri ve teknik
+    değerlendirme için referans sayfası.
     </div>""", unsafe_allow_html=True)
+
+    # MVP Uyarı Kutusu — en üstte, belirgin
+    st.markdown(f"""
+    <div class="mvp-banner">
+        <b>⚠️ Bu bir MVP Prototipidir — Gerçek Bir Ürün Değildir</b><br><br>
+        AquaSense, <b>AI for Sustainability</b> yarışması kapsamında geliştirilen bir
+        <b>Minimum Viable Product (MVP)</b>'dir. MVP; bir ürünün temel işlevlerini
+        doğrulamak amacıyla üretilen, tam ölçekli dağıtıma hazır olmayan erken aşama
+        prototiptir.<br><br>
+        Bu sistemde kullanılan tüm veriler <b>LeakDB simülasyon veri setinden</b> türetilmiştir.
+        Harita koordinatları, bölge adları ve adresler gerçek şebeke altyapısını değil,
+        temsili bir topolojiyi yansıtmaktadır. Gerçek bir belediye tarafından kullanılmadan
+        önce sistemin yerel şebeke verileriyle yeniden eğitilmesi, saha doğrulamasından
+        geçmesi ve güvenlik denetimine tabi tutulması gerekmektedir.
+    </div>
+    """, unsafe_allow_html=True)
 
     col_sys, col_model = st.columns(2)
 
@@ -972,6 +1363,7 @@ elif sayfa == "Sistem & Model":
             ("Değerlendirme Sıklığı", "Her 30 dakika"),
             ("API Altyapısı", "FastAPI (Bulut Sunucu)"),
             ("Arayüz", "Streamlit (Bulut Sunucu)"),
+            ("Aşama", "MVP / Prototip"),
         ]
         for label, val in sys_items:
             st.markdown(f"""<div class="node-row" style="margin-bottom:6px">
@@ -999,20 +1391,78 @@ elif sayfa == "Sistem & Model":
             </div>""", unsafe_allow_html=True)
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    # MVP Ne Demek — genişletilmiş açıklama
+    st.markdown(f'<div style="font-size:13px;font-weight:700;color:{COLORS["text"]};margin-bottom:14px">MVP Nedir? Bu Sistem Neyi Kanıtlamaktadır?</div>', unsafe_allow_html=True)
+
+    mvp_cols = st.columns(3)
+    mvp_items = [
+        ("Kanıtlanan", "Su şebekesi simülasyon verisiyle eğitilen XGBoost modeli kaçakları %82 doğrulukla tespit edebilmektedir."),
+        ("Gösterilen", "FastAPI + Streamlit mimarisi ile gerçek zamanlı tahmin akışı mümkündür. Folium harita entegrasyonu topoloji görselleştirmesini sağlar."),
+        ("Yapılmayan", "Gerçek sensör donanımı entegrasyonu, sahada doğrulama, güvenlik denetimi ve yerel şebeke verileriyle yeniden eğitim."),
+    ]
+    for col, (baslik, aciklama) in zip(mvp_cols, mvp_items):
+        with col:
+            st.markdown(f"""<div style="background:{COLORS['panel']};border-radius:10px;padding:18px;border:1px solid {COLORS['border']}">
+                <div style="font-size:12px;font-weight:700;color:{COLORS['navy']};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">{baslik}</div>
+                <div style="font-size:12.5px;color:{COLORS['text_muted']};line-height:1.6">{aciklama}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     st.markdown(f'<div style="font-size:13px;font-weight:700;color:{COLORS["text"]};margin-bottom:14px">Veri İşlem Hattı</div>', unsafe_allow_html=True)
 
     pipeline_steps = [
         ("1", "LeakDB Veri Seti", "17.520 adım/senaryo, 1000 senaryo"),
         ("2", "Özellik Mühendisliği", "161 özellik: basınç, debi, talep, zaman"),
         ("3", "Kademeli Eğitim", "100 senaryo/grup × 7 grup, XGBoost"),
-        ("4", "FastAPI Servisi", "/predict → 98 sensör → anlık tahmin"),
+        ("4", "FastAPI Servisi", "/predict → 161 özellik → anlık tahmin"),
         ("5", "Streamlit Arayüzü", "Canlı izleme, harita, bölge analizi"),
     ]
     p_cols = st.columns(5)
     for col, (num, title, desc) in zip(p_cols, pipeline_steps):
         with col:
             st.markdown(f"""<div style="background:{COLORS['panel']};border-radius:10px;padding:16px;border:1px solid {COLORS['border']};text-align:center">
-                <div style="font-family:JetBrains Mono;font-size:19px;font-weight:700;color:{COLORS['navy']}">{num}</div>
+                <div style="font-family:JetBrains Mono;font-size:20px;font-weight:700;color:{COLORS['navy']}">{num}</div>
                 <div style="font-size:12px;font-weight:700;color:{COLORS['text']};margin:6px 0 4px">{title}</div>
                 <div style="font-size:10.5px;color:{COLORS['text_muted']};line-height:1.4">{desc}</div>
             </div>""", unsafe_allow_html=True)
+
+    # Telegram Yapılandırma Notu
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:13px;font-weight:700;color:{COLORS["text"]};margin-bottom:14px">Telegram Entegrasyonu — Yapılandırma</div>', unsafe_allow_html=True)
+
+    tg_status_ok = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    tg_cls = "ok" if tg_status_ok else "warning"
+    tg_msg = "Telegram yapılandırması aktif." if tg_status_ok else "Telegram yapılandırması eksik — BOT_TOKEN veya CHAT_ID tanımlı değil."
+
+    st.markdown(f"""
+    <div class="metric-card {tg_cls}">
+        <div class="metric-label">Telegram Bot Durumu</div>
+        <div style="font-size:14px;font-weight:700;color:{COLORS[tg_cls]};margin-bottom:8px">
+            {"✅ Aktif" if tg_status_ok else "⚠️ Yapılandırılmamış"}
+        </div>
+        <div style="font-size:12.5px;color:{COLORS['text_muted']};line-height:1.7">
+            {tg_msg}<br><br>
+            Etkinleştirmek için Onrender'da iki environment variable tanımlayın:<br>
+            <span style="font-family:JetBrains Mono;background:{COLORS['panel_alt']};padding:2px 8px;border-radius:4px">TELEGRAM_BOT_TOKEN</span> — BotFather'dan alınan bot token<br>
+            <span style="font-family:JetBrains Mono;background:{COLORS['panel_alt']};padding:2px 8px;border-radius:4px">TELEGRAM_CHAT_ID</span> — Ekip grup sohbetinin ID'si<br>
+            <br>
+            Grup ID'sini öğrenmek için: @userinfobot veya @getidsbot'u gruba ekleyin.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>Bu Sayfa Hakkında</h4>
+    Bu sayfa AquaSense'in teknik altyapısını, model performansını ve MVP sınırlarını
+    şeffaf biçimde belgeler. Yarışma jürisi ve teknik değerlendiriciler için referans
+    niteliğindedir.<br><br>
+    <b>Model hakkında:</b> XGBoost modeli, LeakDB açık veri setindeki Hanoi şebeke
+    simülasyonları üzerinde kademeli (incremental) öğrenme yöntemiyle eğitilmiştir.
+    %82 doğruluk oranı bağımsız test seti üzerinde ölçülmüştür; gerçek şebeke
+    koşullarında bu değer değişebilir.<br><br>
+    <b>Telegram entegrasyonu hakkında:</b> "Ekibi Gönder" butonu tıklandığında, sistemin
+    Telegram Bot API'yi kullanarak önceden tanımlanmış ekip grubuna bildirim göndermesi
+    için yalnızca iki environment variable yeterlidir. Gerçek bir implementasyonda
+    birden fazla grup (teknik ekip, yönetim) ve onay mekanizması eklenebilir.
+    </div>""", unsafe_allow_html=True)
