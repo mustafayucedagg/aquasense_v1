@@ -95,6 +95,7 @@ def init_state():
         "api_durumu_kontrol_edildi": False,
         "api_aktif": False,
         "telegram_son_mesaj": None,
+        "mesaj_popup_acik": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -380,6 +381,61 @@ h1, h2, h3, h4 {{ font-family: 'Inter', sans-serif; font-weight: 700; color: {CO
     margin-bottom: 20px;
     line-height: 1.6;
 }}
+
+/* Telegram mesaj popup overlay */
+.tg-popup-overlay {{
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 9998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}}
+.tg-popup-box {{
+    background: {COLORS['panel']};
+    border: 2px solid {COLORS['ok']};
+    border-radius: 14px;
+    padding: 28px 32px;
+    max-width: 520px;
+    width: 90%;
+    position: relative;
+    z-index: 9999;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}}
+.tg-popup-box.error {{
+    border-color: {COLORS['warning']};
+}}
+.tg-popup-title {{
+    font-size: 18px;
+    font-weight: 800;
+    color: {COLORS['ok']};
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}}
+.tg-popup-box.error .tg-popup-title {{
+    color: {COLORS['warning']};
+}}
+.tg-popup-body {{
+    font-size: 13px;
+    color: {COLORS['text_muted']};
+    line-height: 1.75;
+    margin-bottom: 16px;
+}}
+.tg-popup-message {{
+    background: {COLORS['panel_alt']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: {COLORS['text']};
+    line-height: 1.9;
+    white-space: pre-wrap;
+    margin-bottom: 20px;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -444,6 +500,23 @@ BELEDIYELER = {
             "Cumhuriyet Mah. İstasyon Cad. No:9, Uluborlu/Isparta",
             "Yeşilköy Mah. 2. Sk. No:18, Uluborlu/Isparta",
             "Kemer Mah. Atatürk Cad. No:31, Uluborlu/Isparta",
+        ],
+    },
+    "Bolu Belediyesi": {
+        "il": "Bolu",
+        "nufus": 98000,
+        "merkez": (40.7360, 31.6069),
+        "span_km": 2.4,
+        "izole_bolgeler": [
+            "İÖB-BLU-1 (Merkez)", "İÖB-BLU-2 (Kuzey)",
+            "İÖB-BLU-3 (Sanayi)", "İÖB-BLU-4 (Güney)", "İÖB-BLU-5 (Karaçayır)",
+        ],
+        "ornek_adresler": [
+            "Tabaklar Mah. Cumhuriyet Cad. No:12, Bolu",
+            "Çaydurt Mah. İzzet Baysal Cad. No:34, Bolu",
+            "Seben Yolu Üzeri Sanayi Mah. No:8, Bolu",
+            "Karaçayır Mah. Abant Cad. No:21, Bolu",
+            "Türkali Mah. Atatürk Bulvarı No:55, Bolu",
         ],
     },
 }
@@ -862,7 +935,6 @@ if sayfa == "Canlı İzleme":
                     probability=st_data["probability"],
                     bel_adi=bel_secim,
                 )
-
                 # Kayıt
                 st.session_state.ekip_gonderildi.append({
                     "Zaman": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
@@ -872,26 +944,38 @@ if sayfa == "Canlı İzleme":
                     "Telegram": "Gönderildi" if tg_ok else "Başarısız",
                 })
                 st.session_state.telegram_son_mesaj = {"ok": tg_ok, "mesaj": tg_mesaj, "adres": adres}
+                st.session_state.mesaj_popup_acik = True
+                st.rerun()
 
-            # Sonuç göster
-            if st.session_state.telegram_son_mesaj:
+            # ── Popup: ekrana tam ortada çıkar, çarpıya basınca kapanır ──
+            if st.session_state.mesaj_popup_acik and st.session_state.telegram_son_mesaj:
                 tg = st.session_state.telegram_son_mesaj
-                if tg["ok"]:
-                    st.markdown(f"""
-                    <div class="telegram-banner">
-                        <div class="tg-title">✅ Ekip Yönlendirildi</div>
-                        Saha ekibine Telegram bildirimi iletildi.
-                        <div class="tg-detail">Hedef: {tg['adres']}</div>
+                popup_cls = "" if tg["ok"] else "error"
+                baslik = "✅ Ekip Yönlendirildi" if tg["ok"] else "⚠️ Telegram Gönderilemedi"
+                ikon_renk = COLORS["ok"] if tg["ok"] else COLORS["warning"]
+
+                # Mesaj metnini satır satır güzel göster
+                mesaj_satirlari = tg["mesaj"].replace("*", "").replace("\n\n", "\n") if tg["ok"] else tg["mesaj"]
+
+                st.markdown(f"""
+                <div class="tg-popup-overlay">
+                    <div class="tg-popup-box {popup_cls}">
+                        <div class="tg-popup-title" style="color:{ikon_renk}">{baslik}</div>
+                        <div class="tg-popup-body">
+                            {"Aşağıdaki mesaj saha ekibine Telegram üzerinden iletildi." if tg["ok"] else "Mesaj gönderilemedi. Telegram yapılandırmasını kontrol edin."}
+                        </div>
+                        <div class="tg-popup-message">{mesaj_satirlari}</div>
                     </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div class="telegram-banner error">
-                        <div class="tg-title">⚠️ Telegram Gönderilemedi</div>
-                        {tg['mesaj']}<br>
-                        <span style="font-size:11px">Onrender'da BOT_TOKEN ve CHAT_ID tanımlı mı?</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Kapat butonu — overlay'in dışında render ediliyor (Streamlit kısıtı)
+                # Üstte sağda konumlandırılmış görünüm için boşluk + buton
+                _, col_kapat = st.columns([5, 1])
+                with col_kapat:
+                    if st.button("✕  Kapat", key="popup_kapat", use_container_width=True):
+                        st.session_state.mesaj_popup_acik = False
+                        st.rerun()
         else:
             st.button(
                 "Ekibi Gönder (Alarm Yok)",
