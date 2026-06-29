@@ -231,7 +231,8 @@ BELEDIYELER = {
     },
 }
 
-API_URL = st.secrets.get("API_URL", "http://localhost:8000") if hasattr(st, "secrets") else "http://localhost:8000"
+import os
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 # ─── Session State ─────────────────────────────────────────────────────────────
 if "alarm_log" not in st.session_state:
