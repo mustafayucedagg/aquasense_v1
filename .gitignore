@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+backend/aquasense.db
+backend/aquasense.db-wal
+backend/aquasense.db-shm
+.env

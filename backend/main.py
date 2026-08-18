@@ -8,6 +8,9 @@ from collections import deque
 from typing import Optional
 from datetime import datetime
 
+import ai
+import database
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "aquasense_model_v2_g7.pkl")
 
 PRESSURE_NODES = [f"P_Node_{i}" for i in range(2, 33)]
@@ -24,9 +27,12 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(f"Model bulunamadı: {MODEL_PATH}")
     model = joblib.load(MODEL_PATH)
     print(f"Model yüklendi: {MODEL_PATH}")
+    database.init_db()
     yield
 
 app = FastAPI(title="AquaSense API", version="2.0", lifespan=lifespan)
+app.include_router(database.router)
+app.include_router(ai.router)
 
 class SensorReading(BaseModel):
     P_Node_2: float;  P_Node_3: float;  P_Node_4: float;  P_Node_5: float
