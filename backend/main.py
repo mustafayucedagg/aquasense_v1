@@ -10,6 +10,7 @@ from datetime import datetime
 
 import ai
 import database
+import reports
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "aquasense_model_v2_g7.pkl")
 
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AquaSense API", version="2.0", lifespan=lifespan)
 app.include_router(database.router)
 app.include_router(ai.router)
+app.include_router(reports.router)
 
 class SensorReading(BaseModel):
     P_Node_2: float;  P_Node_3: float;  P_Node_4: float;  P_Node_5: float

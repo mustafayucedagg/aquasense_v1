@@ -1,6 +1,7 @@
 import os
 import json
 import math
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ try:
 except ImportError:
     ANTHROPIC_SDK_AVAILABLE = False
 
-MODEL = "claude-opus-5"
+MODEL = "claude-sonnet-4-6"
 
 FIELD_TEAMS = [
     "Team Alpha — Pipe Repair",
@@ -188,6 +189,127 @@ def generate_recommendation(ctx: dict) -> dict:
         )
 
 
+PRIORITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ranking": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "incident_id": {"type": "string"},
+                    "rank": {"type": "integer"},
+                    "urgency_score": {"type": "number"},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["incident_id", "rank", "urgency_score", "rationale"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["ranking"],
+    "additionalProperties": False,
+}
+
+PRIORITY_SYSTEM = """You are the incident triage advisor for LYDIA, a water-network monitoring \
+platform. You receive a list of concurrent open incidents (leak alarms / work orders) and must \
+rank them by urgency, most urgent first.
+
+Weigh these factors: leak probability (higher = more urgent), current severity label, estimated \
+water-loss rate if known, how long the incident has been open (older unresolved incidents should \
+generally rise in priority), and whether it is still unassigned. An incident already 'in_progress' \
+is being handled and should rank below untouched 'created' incidents of similar severity, unless \
+its own severity is critical.
+
+Return a full ranking of every incident_id given, each with a 0-100 urgency_score and a short \
+rationale (max ~20 words). Respond in English."""
+
+
+def rule_based_priority(incidents: list, reason: str) -> dict:
+    """Deterministic scoring: weights probability, severity, status and age."""
+    severity_weight = {"critical": 40, "high": 28, "medium": 16, "low": 6}
+    status_penalty = {"created": 0, "assigned": -3, "in_progress": -10,
+                       "resolved": -100, "closed": -100}
+
+    scored = []
+    now = datetime.now()
+    for inc in incidents:
+        probability = float(inc.get("probability") or 0.5)
+        severity = inc.get("severity", "medium")
+        status = inc.get("status", "created")
+        created_at = inc.get("created_at")
+        age_hours = 0.0
+        if created_at:
+            try:
+                age_hours = (now - datetime.fromisoformat(created_at)).total_seconds() / 3600
+            except ValueError:
+                pass
+        age_bonus = min(age_hours * 1.5, 15)  # cap so a very old low-severity item doesn't dominate
+        score = (
+            probability * 45
+            + severity_weight.get(severity, 16)
+            + status_penalty.get(status, 0)
+            + age_bonus
+        )
+        score = max(0.0, min(100.0, score))
+        scored.append((inc["id"], score, severity, status, age_hours))
+
+    scored.sort(key=lambda t: t[1], reverse=True)
+
+    ranking = []
+    for rank, (inc_id, score, severity, status, age_hours) in enumerate(scored, start=1):
+        ranking.append({
+            "incident_id": inc_id,
+            "rank": rank,
+            "urgency_score": round(score, 1),
+            "rationale": (
+                f"{severity} severity, status '{status}', open {age_hours:.1f}h — "
+                f"scored on probability + severity + status + age."
+            ),
+        })
+
+    return {
+        "available": False,
+        "ai_generated": False,
+        "reason": reason,
+        "ranking": ranking,
+    }
+
+
+def generate_priority_ranking(incidents: list) -> dict:
+    if not incidents:
+        return {"available": True, "ai_generated": False, "reason": "No open incidents", "ranking": []}
+    if not anthropic_configured():
+        return rule_based_priority(incidents, "ANTHROPIC_API_KEY not set — showing rule-based fallback")
+    try:
+        payload = {"incidents": incidents}
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            system=[
+                {
+                    "type": "text",
+                    "text": PRIORITY_SYSTEM,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+            output_config={"format": {"type": "json_schema", "schema": PRIORITY_SCHEMA}},
+        )
+        text = next(b.text for b in response.content if b.type == "text")
+        parsed = json.loads(text)
+        return {
+            "available": True,
+            "ai_generated": True,
+            "model": MODEL,
+            "ranking": parsed["ranking"],
+        }
+    except Exception as exc:
+        return rule_based_priority(
+            incidents, f"AI call failed ({type(exc).__name__}) — showing rule-based fallback"
+        )
+
+
 def chat_advisor(messages: list, context: dict) -> str:
     if not anthropic_configured():
         raise AIUnavailableError(
@@ -237,6 +359,12 @@ def ai_status():
 @router.post("/ai/recommendation")
 def ai_recommendation(ctx: dict):
     return generate_recommendation(ctx)
+
+
+@router.post("/ai/priority")
+def ai_priority(body: dict):
+    incidents = body.get("incidents", [])
+    return generate_priority_ranking(incidents)
 
 
 @router.post("/ai/chat")

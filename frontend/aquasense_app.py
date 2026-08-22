@@ -510,6 +510,75 @@ h1, h2, h3, h4 {{
     color: {COLORS['text_faint']};
 }}
 
+/* Rich incident timeline (visual, connected) */
+.wo-rtimeline {{
+    position: relative;
+    margin: 4px 0 4px 9px;
+    padding-left: 24px;
+    border-left: 2px solid {COLORS['border']};
+}}
+.wo-rtimeline-node {{
+    position: relative;
+    padding-bottom: 22px;
+}}
+.wo-rtimeline-node:last-child {{
+    padding-bottom: 2px;
+}}
+.wo-rtimeline-dot {{
+    position: absolute;
+    left: -31px;
+    top: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    border: 2px solid {COLORS['bg']};
+    box-shadow: 0 0 0 2px currentColor;
+}}
+.wo-rtimeline-node.is-current .wo-rtimeline-dot {{
+    box-shadow: 0 0 0 4px currentColor;
+}}
+.wo-rtimeline-gap {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: {COLORS['text_faint']};
+    margin: -14px 0 8px 2px;
+}}
+.wo-rtimeline-head {{
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+}}
+.wo-rtimeline-label {{
+    font-weight: 700;
+    font-size: 13px;
+    color: {COLORS['text']};
+}}
+.wo-rtimeline-ts {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: {COLORS['text_faint']};
+}}
+.wo-rtimeline-detail {{
+    font-size: 12.5px;
+    color: {COLORS['text_muted']};
+    margin-top: 2px;
+    line-height: 1.5;
+}}
+.wo-rtimeline-badge {{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 7px;
+    border-radius: 20px;
+    border: 1px solid currentColor;
+}}
+
 /* Efficiency score display */
 .score-big {{
     font-family: 'JetBrains Mono', monospace;
@@ -989,6 +1058,80 @@ def build_advisor_context(mun_key):
     }
 
 
+EVENT_STYLE = {
+    "created":           {"icon": "🆕", "label": "Created",          "color": "navy"},
+    "status_change":     {"icon": "🔄", "label": "Status Change",    "color": "accent"},
+    "assigned":          {"icon": "👷", "label": "Team Assigned",    "color": "warning"},
+    "note":              {"icon": "📝", "label": "Note",             "color": "text_muted"},
+    "telegram":          {"icon": "📨", "label": "Telegram Sent",    "color": "ok"},
+    "ai_recommendation": {"icon": "🤖", "label": "AI Recommendation","color": "navy_light"},
+}
+
+
+def _format_gap(seconds: float) -> str:
+    """Human-readable elapsed time between two consecutive events."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"+{seconds}s later"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"+{minutes}m later"
+    hours = minutes // 60
+    rem_min = minutes % 60
+    if hours < 24:
+        return f"+{hours}h {rem_min}m later" if rem_min else f"+{hours}h later"
+    days = hours // 24
+    return f"+{days}d later"
+
+
+def render_incident_timeline(events: list):
+    """Renders a connected, color-coded vertical timeline for a work order's event history."""
+    if not events:
+        st.markdown(
+            f'<div style="color:{COLORS["text_faint"]};font-size:13px;padding:14px 0">'
+            'No events recorded yet.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    parsed_times = []
+    for ev in events:
+        try:
+            parsed_times.append(datetime.fromisoformat(ev["ts"]))
+        except (ValueError, KeyError):
+            parsed_times.append(None)
+
+    rows_html = []
+    for idx, ev in enumerate(events):
+        style = EVENT_STYLE.get(ev["event_type"], {"icon": "•", "label": ev["event_type"], "color": "text_muted"})
+        color = COLORS.get(style["color"], COLORS["text_muted"])
+        is_last = idx == len(events) - 1
+        current_cls = " is-current" if is_last else ""
+        ts_display = ev["ts"][:16].replace("T", " ")
+        detail = ev.get("detail") or ""
+
+        if idx > 0 and parsed_times[idx] and parsed_times[idx - 1]:
+            gap_s = (parsed_times[idx] - parsed_times[idx - 1]).total_seconds()
+            gap_label = _format_gap(gap_s)
+            rows_html.append(
+                f'<div class="wo-rtimeline-gap">⋮ {gap_label}</div>'
+            )
+
+        rows_html.append(f"""
+        <div class="wo-rtimeline-node{current_cls}" style="color:{color}">
+            <div class="wo-rtimeline-dot" style="background:{color}">{style['icon']}</div>
+            <div class="wo-rtimeline-head">
+                <span class="wo-rtimeline-label">{style['label']}</span>
+                <span class="wo-rtimeline-badge">{'LATEST' if is_last else ev['event_type'].upper()}</span>
+                <span class="wo-rtimeline-ts">{ts_display}</span>
+            </div>
+            {f'<div class="wo-rtimeline-detail">{detail}</div>' if detail else ''}
+        </div>
+        """)
+
+    st.markdown(f'<div class="wo-rtimeline">{"".join(rows_html)}</div>', unsafe_allow_html=True)
+
+
 def render_recommendation_card(rec_response):
     """Shared renderer for AI intervention plans (Live Monitoring + Work Orders)."""
     rec = rec_response.get("recommendation") or {}
@@ -1212,6 +1355,7 @@ with st.sidebar:
             "Work Orders",
             "Consumption Analytics",
             "Efficiency Score",
+            "Automated Reports",
             "AI Advisor",
             "Data Analysis",
             "Guide",
@@ -1944,6 +2088,50 @@ elif page == "Work Orders":
 
     ok_stats, wo_stats = api_request("GET", "/workorders/stats",
                                      params={"municipality": municipality_choice}, timeout=5)
+
+    # AI Priority Engine: rank concurrent open incidents when there's more than one
+    ok_open_list, open_orders = api_request(
+        "GET", "/workorders", params={"municipality": municipality_choice}, timeout=5
+    )
+    open_orders = [
+        o for o in (open_orders if ok_open_list and isinstance(open_orders, list) else [])
+        if o["status"] not in ("resolved", "closed")
+    ]
+    if len(open_orders) > 1:
+        with st.expander(f"⚡ AI Priority Queue — {len(open_orders)} concurrent open incidents", expanded=True):
+            with st.spinner("Ranking incidents by urgency…"):
+                ok_pr, pr_data = api_request(
+                    "POST", "/ai/priority",
+                    json_body={"incidents": open_orders}, timeout=30,
+                )
+            if not ok_pr or not pr_data.get("ranking"):
+                st.markdown(f'<div style="color:{COLORS["text_faint"]};font-size:13px">Priority ranking unavailable.</div>', unsafe_allow_html=True)
+            else:
+                if not pr_data.get("ai_generated"):
+                    st.markdown(
+                        f'<span class="hint">⚙️ Rule-based ranking — {pr_data.get("reason", "")}</span>',
+                        unsafe_allow_html=True,
+                    )
+                by_id = {o["id"]: o for o in open_orders}
+                for item in pr_data["ranking"]:
+                    inc = by_id.get(item["incident_id"], {})
+                    sev_badge = WO_SEVERITY_BADGE.get(inc.get("severity"), "badge-warning")
+                    st.markdown(f"""
+                    <div class="node-row">
+                        <div>
+                            <div style="font-weight:700;font-size:13.5px;color:{COLORS['text']}">
+                                #{item['rank']} — {item['incident_id']} · Node {inc.get('node_id', '?')}
+                            </div>
+                            <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:2px">{item['rationale']}</div>
+                        </div>
+                        <div style="text-align:right">
+                            <span class="badge {sev_badge}">{(inc.get('severity') or '?').upper()}</span>
+                            <div style="font-family:JetBrains Mono;font-size:12px;color:{COLORS['text_muted']};margin-top:4px">{item['urgency_score']:.0f}/100</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
     if not ok_stats:
         st.markdown(f"""
         <div class="metric-card alarm">
@@ -2092,17 +2280,8 @@ elif page == "Work Orders":
                                 json_body={"event_type": "note", "detail": note_text.strip()})
                     st.rerun()
 
-            st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 9px">Timeline</div>', unsafe_allow_html=True)
-            event_icons = {"created": "🆕", "status_change": "🔄", "assigned": "👷",
-                           "note": "📝", "telegram": "📨", "ai_recommendation": "🤖"}
-            for ev in wo.get("events", []):
-                icon = event_icons.get(ev["event_type"], "•")
-                st.markdown(f"""
-                <div class="wo-timeline-item">
-                    <span class="wo-ts">{ev['ts'][:16].replace('T', ' ')}</span><br>
-                    {icon} {ev['detail'] or ev['event_type']}
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:12px;font-weight:700;color:{COLORS["text_muted"]};text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 9px">Incident Timeline</div>', unsafe_allow_html=True)
+            render_incident_timeline(wo.get("events", []))
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
@@ -2331,6 +2510,89 @@ elif page == "Efficiency Score":
     Operational efficiency uses live work-order statistics when the backend is online (resolution
     rate over the last 7 days, penalized by open critical orders); the remaining inputs are
     deterministic simulations, consistent with the rest of this MVP.
+    </div>""", unsafe_allow_html=True)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PAGE: AUTOMATED REPORTS
+# ═════════════════════════════════════════════════════════════════════════════
+elif page == "Automated Reports":
+    render_page_header("Automated Reports")
+
+    st.markdown("""<div class="guide-box-top">
+    Generates a PDF operational summary on demand — work order counts, recent incidents and the
+    current efficiency score, all pulled from live system data at the moment you click generate.
+    </div>""", unsafe_allow_html=True)
+
+    ok_stats, wo_stats = api_request("GET", "/workorders/stats",
+                                     params={"municipality": municipality_choice}, timeout=5)
+    score = compute_efficiency_score(municipality_choice, wo_stats if ok_stats else None)
+
+    col_preview, col_action = st.columns([1.6, 1])
+    with col_preview:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Report will include</div>
+            <div style="font-size:13px;color:{COLORS['text_muted']};line-height:1.9;margin-top:8px">
+                • Work order summary for <b style="color:{COLORS['text']}">{municipality_choice}</b><br>
+                • Up to 15 most recent incidents (ID, node, severity, status)<br>
+                • Current Water Efficiency Score ({score['total']}/100, Grade {score['grade']})<br>
+                • Generation timestamp and data-source notes
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if ok_stats:
+            st.markdown(f"""
+            <div style="font-size:12px;color:{COLORS['text_faint']};margin-top:10px">
+                Live snapshot right now — Open: {wo_stats['open']} · In Progress: {wo_stats['in_progress']}
+                · Resolved (7d): {wo_stats['resolved_7d']} · Open Critical: {wo_stats['open_critical']}
+            </div>
+            """, unsafe_allow_html=True)
+
+    with col_action:
+        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+        if st.button("📄 Generate PDF Report", use_container_width=True, key="gen_report_btn"):
+            with st.spinner("Assembling report from live data…"):
+                try:
+                    resp = requests.post(
+                        f"{API_URL}/reports/generate",
+                        json={
+                            "municipality": municipality_choice,
+                            "efficiency": score,
+                            "period_days": 7,
+                        },
+                        timeout=20,
+                    )
+                    if resp.status_code == 200:
+                        st.session_state["last_report_pdf"] = resp.content
+                        st.session_state["last_report_name"] = (
+                            f"lydia-report-{municipality_choice.replace(' ', '_')}-"
+                            f"{datetime.now().strftime('%Y%m%d-%H%M')}.pdf"
+                        )
+                        st.rerun()
+                    else:
+                        st.error(f"Report generation failed (HTTP {resp.status_code}).")
+                except Exception as exc:
+                    st.error(f"Could not reach backend: {exc}")
+
+        if "last_report_pdf" in st.session_state:
+            st.download_button(
+                "⬇️ Download Report",
+                data=st.session_state["last_report_pdf"],
+                file_name=st.session_state.get("last_report_name", "lydia-report.pdf"),
+                mime="application/pdf",
+                use_container_width=True,
+                key="dl_report_btn",
+            )
+
+    st.markdown(f"""<div class="guide-box-bottom">
+    <h4>About This Page</h4>
+    <b>Automated Reports</b> assembles a PDF from data already tracked elsewhere in the platform —
+    it does not compute or simulate anything new. Work order counts and the incident list are read
+    directly from the live SQLite store at generation time; the efficiency score shown is the same
+    figure displayed on the Efficiency Score page, computed the same way. The report explicitly notes
+    which parts of the platform are still simulated, so a downloaded report never claims more
+    certainty than the dashboard itself does.
     </div>""", unsafe_allow_html=True)
 
 
