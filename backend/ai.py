@@ -12,7 +12,7 @@ try:
 except ImportError:
     ANTHROPIC_SDK_AVAILABLE = False
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 
 FIELD_TEAMS = [
     "Team Alpha — Pipe Repair",
@@ -165,7 +165,7 @@ def generate_recommendation(ctx: dict) -> dict:
     try:
         response = get_client().messages.create(
             model=MODEL,
-            max_tokens=2048,
+            max_tokens=700,
             system=[
                 {
                     "type": "text",
@@ -174,7 +174,10 @@ def generate_recommendation(ctx: dict) -> dict:
                 }
             ],
             messages=[{"role": "user", "content": json.dumps(ctx)}],
-            output_config={"format": {"type": "json_schema", "schema": RECOMMENDATION_SCHEMA}},
+            output_config={
+                "effort": "low",
+                "format": {"type": "json_schema", "schema": RECOMMENDATION_SCHEMA},
+            },
         )
         text = next(b.text for b in response.content if b.type == "text")
         return {
@@ -285,7 +288,7 @@ def generate_priority_ranking(incidents: list) -> dict:
         payload = {"incidents": incidents}
         response = get_client().messages.create(
             model=MODEL,
-            max_tokens=2048,
+            max_tokens=700,
             system=[
                 {
                     "type": "text",
@@ -294,7 +297,10 @@ def generate_priority_ranking(incidents: list) -> dict:
                 }
             ],
             messages=[{"role": "user", "content": json.dumps(payload)}],
-            output_config={"format": {"type": "json_schema", "schema": PRIORITY_SCHEMA}},
+            output_config={
+                "effort": "low",
+                "format": {"type": "json_schema", "schema": PRIORITY_SCHEMA},
+            },
         )
         text = next(b.text for b in response.content if b.type == "text")
         parsed = json.loads(text)
@@ -317,7 +323,7 @@ def chat_advisor(messages: list, context: dict) -> str:
         )
     response = get_client().messages.create(
         model=MODEL,
-        max_tokens=2048,
+        max_tokens=600,
         output_config={"effort": "low"},
         system=[
             {
