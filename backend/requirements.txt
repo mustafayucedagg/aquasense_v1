@@ -5,5 +5,5 @@ joblib
 numpy
 pydantic
 pandas
-anthropic
+google-genai
 reportlab

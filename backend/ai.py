@@ -7,30 +7,47 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 try:
-    import anthropic
-    ANTHROPIC_SDK_AVAILABLE = True
+    from google import genai
+    from google.genai import types as genai_types
+    GEMINI_SDK_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_SDK_AVAILABLE = False
+    GEMINI_SDK_AVAILABLE = False
 
-MODEL = "claude-haiku-4-5-20251001"
+# Model alias, not a pinned version - Google points this at whatever their current
+# "Flash" tier model is, so this deployment doesn't need a code change every time
+# Google retires a dated model name (e.g. gemini-2.5-flash is being retired
+# October 2026; gemini-flash-latest avoids that churn).
+MODEL = "gemini-flash-latest"
 
 FIELD_TEAMS = [
-    "Team Alpha — Pipe Repair",
-    "Team Bravo — Valve & Isolation Ops",
-    "Team Charlie — Metering & Detection",
+    "Team Alpha - Pipe Repair",
+    "Team Bravo - Valve & Isolation Ops",
+    "Team Charlie - Metering & Detection",
 ]
 
 _client = None
 
 
+def gemini_configured() -> bool:
+    """True if the Gemini SDK is installed and an API key is present.
+    Accepts either GEMINI_API_KEY or GOOGLE_API_KEY (the SDK's own default env var),
+    checked in that order so a Render deploy only needs to set one of them."""
+    if not GEMINI_SDK_AVAILABLE:
+        return False
+    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+
+
 def anthropic_configured() -> bool:
-    return ANTHROPIC_SDK_AVAILABLE and bool(os.environ.get("ANTHROPIC_API_KEY"))
+    """Kept for backward compatibility with any older caller still expecting this
+    name - it now reflects whichever AI provider is actually configured (Gemini)."""
+    return gemini_configured()
 
 
 def get_client():
     global _client
     if _client is None:
-        _client = anthropic.Anthropic()
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        _client = genai.Client(api_key=api_key)
     return _client
 
 
@@ -54,7 +71,6 @@ RECOMMENDATION_SCHEMA = {
                     "reason": {"type": "string"},
                 },
                 "required": ["link_id", "reason"],
-                "additionalProperties": False,
             },
         },
         "estimated_loss_m3_per_hour": {"type": "number"},
@@ -66,29 +82,29 @@ RECOMMENDATION_SCHEMA = {
         "valves_to_close", "estimated_loss_m3_per_hour",
         "estimated_loss_24h_delay_m3", "immediate_steps",
     ],
-    "additionalProperties": False,
 }
 
-RECOMMENDATION_SYSTEM = f"""You are the senior water-network operations advisor for LYDIA, \
+RECOMMENDATION_SYSTEM = """You are the senior water-network operations advisor for LYDIA, \
 a municipal leak-detection platform. When a leak alarm is raised, you produce a concrete \
 intervention plan as JSON.
 
 Field teams available (choose exactly one):
-- {FIELD_TEAMS[0]}: excavation and pipe replacement; best for confirmed single-point bursts.
-- {FIELD_TEAMS[1]}: valve operations and zone isolation; best when multiple pipe links must \
-be closed or the leak point is uncertain.
-- {FIELD_TEAMS[2]}: acoustic detection and metering; best for low-probability or ambiguous signals.
+- Team Alpha - Pipe Repair: excavation and pipe replacement; best for confirmed single-point bursts.
+- Team Bravo - Valve & Isolation Ops: valve operations and zone isolation; best when multiple \
+pipe links must be closed or the leak point is uncertain.
+- Team Charlie - Metering & Detection: acoustic detection and metering; best for low-probability \
+or ambiguous signals.
 
 Isolation rule: to isolate node N, close the valves on every pipe link incident to N. \
-The incident links for the alarmed node are provided in the request as `connected_links` — \
+The incident links for the alarmed node are provided in the request as connected_links - \
 only recommend closing links from that list.
 
 Water-loss estimation: leak outflow scales roughly with the square root of line pressure. \
-A typical service-line leak loses 1–6 m³/h; a main burst can lose considerably more. \
+A typical service-line leak loses 1-6 m3/h; a main burst can lose considerably more. \
 Estimate the current loss rate from pressure and leak probability, and multiply by 24 for \
 the volume lost if intervention is delayed a full day. Be conservative and round sensibly.
 
-Write 3–6 immediate_steps as short imperative sentences. Respond in English."""
+Write 3-6 immediate_steps as short imperative sentences. Respond in English."""
 
 ADVISOR_SYSTEM = """You are the LYDIA Water Advisor, a natural-language assistant embedded in \
 a municipal water-network monitoring platform. You explain what is happening in the network, \
@@ -96,15 +112,23 @@ interpret anomalies (pressure drops, elevated night flow, demand deviations, zon
 and recommend operational actions.
 
 Background you may rely on: the platform's leak detector is an XGBoost classifier over 161 \
-features — 31 node pressures, 34 link flows, 32 node demands, hour-of-day and a night flag \
-(02:00–04:00), plus 3-sample rolling means and first differences of each pressure. Elevated \
+features - 31 node pressures, 34 link flows, 32 node demands, hour-of-day and a night flag \
+(02:00-04:00), plus 3-sample rolling means and first differences of each pressure. Elevated \
 flow during the night window is a strong leak indicator because legitimate demand is minimal then. \
-Normal operating pressure is 3.0–5.6 bar.
+Normal operating pressure is 3.0-5.6 bar.
 
 A LIVE SYSTEM CONTEXT block with the current network snapshot (alarms, zone summaries, open \
 work orders, efficiency score) is provided in this conversation. Base factual claims only on \
 that context; when something is not in the context, say the data is not available. Answer in \
 concise English and keep responses focused."""
+
+# thinking_budget=0 disables Gemini's extended-thinking pass entirely - the rough
+# equivalent of "low effort": faster, cheaper responses for the short, structured
+# outputs these endpoints need. Advisor chat gets a small non-zero budget since
+# open-ended answers benefit a little more from it; the structured endpoints
+# (recommendation, priority) get 0 since the schema already constrains them.
+_LOW_EFFORT_STRUCTURED = genai_types.ThinkingConfig(thinking_budget=0) if GEMINI_SDK_AVAILABLE else None
+_LOW_EFFORT_CHAT = genai_types.ThinkingConfig(thinking_budget=128) if GEMINI_SDK_AVAILABLE else None
 
 
 def rule_based_recommendation(ctx: dict, reason: str) -> dict:
@@ -158,37 +182,31 @@ def rule_based_recommendation(ctx: dict, reason: str) -> dict:
 
 
 def generate_recommendation(ctx: dict) -> dict:
-    if not anthropic_configured():
+    if not gemini_configured():
         return rule_based_recommendation(
-            ctx, "ANTHROPIC_API_KEY not set — showing rule-based fallback"
+            ctx, "GEMINI_API_KEY not set - showing rule-based fallback"
         )
     try:
-        response = get_client().messages.create(
+        response = get_client().models.generate_content(
             model=MODEL,
-            max_tokens=700,
-            system=[
-                {
-                    "type": "text",
-                    "text": RECOMMENDATION_SYSTEM,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": json.dumps(ctx)}],
-            output_config={
-                "effort": "low",
-                "format": {"type": "json_schema", "schema": RECOMMENDATION_SCHEMA},
-            },
+            contents=json.dumps(ctx),
+            config=genai_types.GenerateContentConfig(
+                system_instruction=RECOMMENDATION_SYSTEM,
+                max_output_tokens=700,
+                response_mime_type="application/json",
+                response_json_schema=RECOMMENDATION_SCHEMA,
+                thinking_config=_LOW_EFFORT_STRUCTURED,
+            ),
         )
-        text = next(b.text for b in response.content if b.type == "text")
         return {
             "available": True,
             "ai_generated": True,
             "model": MODEL,
-            "recommendation": json.loads(text),
+            "recommendation": json.loads(response.text),
         }
     except Exception as exc:
         return rule_based_recommendation(
-            ctx, f"AI call failed ({type(exc).__name__}) — showing rule-based fallback"
+            ctx, f"AI call failed ({type(exc).__name__}) - showing rule-based fallback"
         )
 
 
@@ -206,12 +224,10 @@ PRIORITY_SCHEMA = {
                     "rationale": {"type": "string"},
                 },
                 "required": ["incident_id", "rank", "urgency_score", "rationale"],
-                "additionalProperties": False,
             },
         },
     },
     "required": ["ranking"],
-    "additionalProperties": False,
 }
 
 PRIORITY_SYSTEM = """You are the incident triage advisor for LYDIA, a water-network monitoring \
@@ -247,7 +263,7 @@ def rule_based_priority(incidents: list, reason: str) -> dict:
                 age_hours = (now - datetime.fromisoformat(created_at)).total_seconds() / 3600
             except ValueError:
                 pass
-        age_bonus = min(age_hours * 1.5, 15)  # cap so a very old low-severity item doesn't dominate
+        age_bonus = min(age_hours * 1.5, 15)
         score = (
             probability * 45
             + severity_weight.get(severity, 16)
@@ -266,7 +282,7 @@ def rule_based_priority(incidents: list, reason: str) -> dict:
             "rank": rank,
             "urgency_score": round(score, 1),
             "rationale": (
-                f"{severity} severity, status '{status}', open {age_hours:.1f}h — "
+                f"{severity} severity, status '{status}', open {age_hours:.1f}h - "
                 f"scored on probability + severity + status + age."
             ),
         })
@@ -282,28 +298,22 @@ def rule_based_priority(incidents: list, reason: str) -> dict:
 def generate_priority_ranking(incidents: list) -> dict:
     if not incidents:
         return {"available": True, "ai_generated": False, "reason": "No open incidents", "ranking": []}
-    if not anthropic_configured():
-        return rule_based_priority(incidents, "ANTHROPIC_API_KEY not set — showing rule-based fallback")
+    if not gemini_configured():
+        return rule_based_priority(incidents, "GEMINI_API_KEY not set - showing rule-based fallback")
     try:
         payload = {"incidents": incidents}
-        response = get_client().messages.create(
+        response = get_client().models.generate_content(
             model=MODEL,
-            max_tokens=700,
-            system=[
-                {
-                    "type": "text",
-                    "text": PRIORITY_SYSTEM,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": json.dumps(payload)}],
-            output_config={
-                "effort": "low",
-                "format": {"type": "json_schema", "schema": PRIORITY_SCHEMA},
-            },
+            contents=json.dumps(payload),
+            config=genai_types.GenerateContentConfig(
+                system_instruction=PRIORITY_SYSTEM,
+                max_output_tokens=700,
+                response_mime_type="application/json",
+                response_json_schema=PRIORITY_SCHEMA,
+                thinking_config=_LOW_EFFORT_STRUCTURED,
+            ),
         )
-        text = next(b.text for b in response.content if b.type == "text")
-        parsed = json.loads(text)
+        parsed = json.loads(response.text)
         return {
             "available": True,
             "ai_generated": True,
@@ -312,36 +322,37 @@ def generate_priority_ranking(incidents: list) -> dict:
         }
     except Exception as exc:
         return rule_based_priority(
-            incidents, f"AI call failed ({type(exc).__name__}) — showing rule-based fallback"
+            incidents, f"AI call failed ({type(exc).__name__}) - showing rule-based fallback"
         )
+
+
+def _to_gemini_contents(messages: list) -> list:
+    """Converts the Anthropic-shaped {role, content} messages this API has always
+    accepted from the frontend into Gemini's {role, parts: [{text}]} contents format.
+    Gemini uses 'model' instead of 'assistant' for the assistant role."""
+    contents = []
+    for m in messages:
+        role = "model" if m.get("role") == "assistant" else "user"
+        text = m.get("content", "")
+        contents.append(genai_types.Content(role=role, parts=[genai_types.Part(text=text)]))
+    return contents
 
 
 def chat_advisor(messages: list, context: dict) -> str:
-    if not anthropic_configured():
+    if not gemini_configured():
         raise AIUnavailableError(
-            "AI Advisor requires ANTHROPIC_API_KEY on the backend service."
+            "AI Advisor requires GEMINI_API_KEY (or GOOGLE_API_KEY) on the backend service."
         )
-    response = get_client().messages.create(
+    response = get_client().models.generate_content(
         model=MODEL,
-        max_tokens=600,
-        output_config={"effort": "low"},
-        system=[
-            {
-                "type": "text",
-                "text": ADVISOR_SYSTEM,
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": "LIVE SYSTEM CONTEXT:\n" + json.dumps(context),
-            },
-        ],
-        messages=messages[-20:],
+        contents=_to_gemini_contents(messages[-20:]),
+        config=genai_types.GenerateContentConfig(
+            system_instruction=ADVISOR_SYSTEM + "\n\nLIVE SYSTEM CONTEXT:\n" + json.dumps(context),
+            max_output_tokens=600,
+            thinking_config=_LOW_EFFORT_CHAT,
+        ),
     )
-    return next(
-        (b.text for b in reversed(response.content) if b.type == "text"),
-        "",
-    )
+    return response.text or ""
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +369,14 @@ class ChatRequest(BaseModel):
 
 @router.get("/ai/status")
 def ai_status():
-    return {"anthropic_configured": anthropic_configured(), "model": MODEL,
-            "field_teams": FIELD_TEAMS}
+    configured = gemini_configured()
+    return {
+        "anthropic_configured": configured,
+        "ai_configured": configured,
+        "provider": "gemini",
+        "model": MODEL,
+        "field_teams": FIELD_TEAMS,
+    }
 
 
 @router.post("/ai/recommendation")
