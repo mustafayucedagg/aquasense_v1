@@ -17,7 +17,7 @@ except ImportError:
 # "Flash" tier model is, so this deployment doesn't need a code change every time
 # Google retires a dated model name (e.g. gemini-2.5-flash is being retired
 # October 2026; gemini-flash-latest avoids that churn).
-MODEL = "gemini-flash-latest"
+MODEL = "gemini-3.5-flash-lite"
 
 FIELD_TEAMS = [
     "Team Alpha - Pipe Repair",
@@ -122,13 +122,10 @@ work orders, efficiency score) is provided in this conversation. Base factual cl
 that context; when something is not in the context, say the data is not available. Answer in \
 concise English and keep responses focused."""
 
-# thinking_budget=0 disables Gemini's extended-thinking pass entirely - the rough
-# equivalent of "low effort": faster, cheaper responses for the short, structured
-# outputs these endpoints need. Advisor chat gets a small non-zero budget since
-# open-ended answers benefit a little more from it; the structured endpoints
-# (recommendation, priority) get 0 since the schema already constrains them.
-_LOW_EFFORT_STRUCTURED = genai_types.ThinkingConfig(thinking_budget=0) if GEMINI_SDK_AVAILABLE else None
-_LOW_EFFORT_CHAT = genai_types.ThinkingConfig(thinking_budget=128) if GEMINI_SDK_AVAILABLE else None
+# Gemini 3.5 Flash-Lite already runs with thinking disabled by default for speed/cost,
+# so no explicit thinking_config is needed here (and passing an unsupported config
+# shape is a common source of 400/500 errors across Gemini model tiers - simplest to
+# just not send it and let the model's own default behavior apply).
 
 
 def rule_based_recommendation(ctx: dict, reason: str) -> dict:
@@ -195,7 +192,6 @@ def generate_recommendation(ctx: dict) -> dict:
                 max_output_tokens=700,
                 response_mime_type="application/json",
                 response_json_schema=RECOMMENDATION_SCHEMA,
-                thinking_config=_LOW_EFFORT_STRUCTURED,
             ),
         )
         return {
@@ -206,7 +202,7 @@ def generate_recommendation(ctx: dict) -> dict:
         }
     except Exception as exc:
         return rule_based_recommendation(
-            ctx, f"AI call failed ({type(exc).__name__}) - showing rule-based fallback"
+            ctx, f"AI call failed ({type(exc).__name__}: {exc}) - showing rule-based fallback"
         )
 
 
@@ -310,7 +306,6 @@ def generate_priority_ranking(incidents: list) -> dict:
                 max_output_tokens=700,
                 response_mime_type="application/json",
                 response_json_schema=PRIORITY_SCHEMA,
-                thinking_config=_LOW_EFFORT_STRUCTURED,
             ),
         )
         parsed = json.loads(response.text)
@@ -349,7 +344,6 @@ def chat_advisor(messages: list, context: dict) -> str:
         config=genai_types.GenerateContentConfig(
             system_instruction=ADVISOR_SYSTEM + "\n\nLIVE SYSTEM CONTEXT:\n" + json.dumps(context),
             max_output_tokens=600,
-            thinking_config=_LOW_EFFORT_CHAT,
         ),
     )
     return response.text or ""
