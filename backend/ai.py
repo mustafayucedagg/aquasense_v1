@@ -170,7 +170,16 @@ work orders, efficiency score, water savings) is provided in this conversation. 
 claims about current numbers only on that context; when a number is not in the context, say so \
 rather than guessing. You may always answer general questions about what LYDIA does and how its \
 features work from the description above, even if that isn't in the live context. Answer in \
-concise English and keep responses focused."""
+concise English and keep responses focused.
+
+OUTPUT FORMAT - PLAIN TEXT ONLY: your reply is rendered as raw plain text in the app UI, with no \
+Markdown or LaTeX renderer on the other end. Because of this you must NEVER use LaTeX syntax \
+(no $...$, $$...$$, \\text{}, \\mathbf{}, \\times, \\frac{}, or any other backslash command) and \
+NEVER use Markdown syntax (no **bold**, *italics*, # headers, or backtick code spans). Write \
+numbers and formulas in plain text instead, e.g. "0.25 m3/s" not "$0.25 \\text{ m}^3\\text{/s}$", \
+and "0.25 x 420 = 105,000 liters" not "$0.25 \\times 420 = \\mathbf{105,000}$". For units use plain \
+characters (m3, CO2, kWh) rather than typeset scripts. You may use plain numbered lists (1. 2. 3.) \
+and line breaks for structure, but nothing else."""
 
 # Gemini 3.5 Flash-Lite already runs with thinking disabled by default for speed/cost,
 # so no explicit thinking_config is needed here (and passing an unsupported config
@@ -383,6 +392,60 @@ def _to_gemini_contents(messages: list) -> list:
     return contents
 
 
+import re
+
+# Safety net in case the model ignores the plain-text instruction: strips common
+# LaTeX and Markdown artifacts from the reply before it reaches the frontend.
+# The system prompt is the primary control; this is a cheap backstop, not a full
+# LaTeX parser, so it only targets the patterns Gemini actually tends to emit.
+_LATEX_TEXT_CMD = re.compile(r"\\text\{([^{}]*)\}")
+_LATEX_MATHBF_CMD = re.compile(r"\\mathbf\{([^{}]*)\}")
+_LATEX_FRAC_CMD = re.compile(r"\\frac\{([^{}]*)\}\{([^{}]*)\}")
+_LATEX_GENERIC_CMD = re.compile(r"\\[a-zA-Z]+")
+_LATEX_CARET = re.compile(r"\^(\d+|\{[^{}]*\})")
+_DOLLAR_MATH = re.compile(r"\$\$?([^$]+)\$\$?")
+_MD_BOLD_ITALIC = re.compile(r"\*\*([^*]+)\*\*|\*([^*]+)\*")
+_MD_HEADER = re.compile(r"^#{1,6}\s*", re.MULTILINE)
+_MD_CODE = re.compile(r"`([^`]+)`")
+
+
+def sanitize_advisor_text(text: str) -> str:
+    if not text:
+        return text
+
+    def _unwrap_dollar_math(m: re.Match) -> str:
+        inner = m.group(1)
+        inner = _LATEX_TEXT_CMD.sub(r"\1", inner)
+        inner = _LATEX_MATHBF_CMD.sub(r"\1", inner)
+        inner = _LATEX_FRAC_CMD.sub(r"\1/\2", inner)
+        inner = inner.replace("\\times", "x").replace("\\approx", "~=").replace("\\cdot", "x")
+        inner = _LATEX_CARET.sub(lambda c: c.group(1).strip("{}"), inner)
+        inner = _LATEX_GENERIC_CMD.sub("", inner)
+        return inner.strip()
+
+    text = _DOLLAR_MATH.sub(_unwrap_dollar_math, text)
+    # Any remaining LaTeX commands outside $...$ (model sometimes drops the delimiters)
+    text = _LATEX_TEXT_CMD.sub(r"\1", text)
+    text = _LATEX_MATHBF_CMD.sub(r"\1", text)
+    text = _LATEX_FRAC_CMD.sub(r"\1/\2", text)
+    text = text.replace("\\times", "x").replace("\\approx", "~=").replace("\\cdot", "x")
+    text = _LATEX_CARET.sub(lambda c: c.group(1).strip("{}"), text)
+    text = _LATEX_GENERIC_CMD.sub("", text)
+
+    # Markdown cleanup
+    text = _MD_BOLD_ITALIC.sub(lambda m: m.group(1) or m.group(2) or "", text)
+    text = _MD_HEADER.sub("", text)
+    text = _MD_CODE.sub(r"\1", text)
+
+    # Leftover escaped dollar signs (e.g. from \$89.25) and any stray backslashes
+    text = text.replace("\\$", "$").replace("\\", "")
+    # Collapse the extra whitespace left behind by removed commands
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r" +\n", "\n", text)
+
+    return text.strip()
+
+
 def chat_advisor(messages: list, context: dict) -> str:
     if not gemini_configured():
         raise AIUnavailableError(
@@ -396,7 +459,7 @@ def chat_advisor(messages: list, context: dict) -> str:
             max_output_tokens=600,
         ),
     )
-    return response.text or ""
+    return sanitize_advisor_text(response.text or "")
 
 
 # ---------------------------------------------------------------------------
